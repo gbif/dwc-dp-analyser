@@ -6,11 +6,11 @@
 
     <parent>
         <groupId>org.gbif</groupId>
-        <artifactId>duckdb-dp</artifactId>
+        <artifactId>dwc-dp-analyser</artifactId>
         <version>1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>duckdb-dp-cli</artifactId>
+    <artifactId>dwc-dp-analyser-cli</artifactId>
 
     <dependencies>
         <dependency>

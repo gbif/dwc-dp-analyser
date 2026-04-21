@@ -1,4 +1,4 @@
-# duckdb-dp
+# Darwin Core - Datapackage Analyser
 
 Generic Java library to validate Frictionless Data Package referential integrity and column data types
 using DuckDB directly over data files.

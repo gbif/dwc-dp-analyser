@@ -33,7 +33,7 @@ Each run produces a log folder with:
 ### Example
 
 ```bash
-./run.sh logs/ /path/to/data/dir duckdb-dp-cli/target/duckdb-dp-cli-1.0-SNAPSHOT-runner.jar
+./run.sh logs/ /path/to/data/dir dwc-dp-analyser-cli/target/dwc-dp-analyser-cli-1.0-SNAPSHOT-runner.jar
 ```
 
 This will produce a run folder like:
@@ -217,7 +217,7 @@ out/
 mvn clean package
 
 # 1. Run via profiling script (produces logs, GC, pidstat, vmstat)
-./run.sh logs/ /path/to/data/dir duckdb-dp-cli/target/duckdb-dp-cli-1.0-SNAPSHOT-runner.jar
+./run.sh logs/ /path/to/data/dir dwc-dp-analyser-cli/target/dwc-dp-analyser-cli-1.0-SNAPSHOT-runner.jar
 
 # 2. Convert logs
 python parse_runs_to_parquet.py logs/ -o out/all_runs.parquet
