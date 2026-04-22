@@ -1,4 +1,4 @@
-package org.gbif.dp.analysis.model;
+package org.gbif.dp.analysis.api;
 
 public record ColumnStatistics(
         String name,

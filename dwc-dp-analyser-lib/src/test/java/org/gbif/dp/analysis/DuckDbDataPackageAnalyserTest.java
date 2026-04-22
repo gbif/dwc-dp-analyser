@@ -9,11 +9,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-import org.gbif.dp.analysis.model.ColumnStatistics;
+import org.gbif.dp.analysis.api.ColumnStatistics;
+import org.gbif.dp.analysis.api.ResourceAnalysisResult;
 import org.gbif.dp.descriptor.JacksonDataPackageParser;
 import org.gbif.dp.duckdb.DuckDbResourceLoader;
-import org.gbif.dp.analysis.model.DataTypeViolation;
-import org.gbif.dp.analysis.model.DatapackageAnalysisResult;
+import org.gbif.dp.analysis.api.DataTypeViolation;
+import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
 import org.junit.jupiter.api.Test;
 
 class DuckDbDataPackageAnalyserTest {

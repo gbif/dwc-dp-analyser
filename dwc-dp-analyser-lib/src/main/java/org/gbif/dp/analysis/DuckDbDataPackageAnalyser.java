@@ -14,9 +14,15 @@ import java.util.Map;
 import java.util.StringJoiner;
 import java.util.stream.Collectors;
 
+import org.gbif.dp.analysis.api.ColumnStatistics;
+import org.gbif.dp.analysis.api.DataTypeViolation;
+import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
+import org.gbif.dp.analysis.api.ForeignKeyViolation;
+import org.gbif.dp.analysis.api.PrimaryKeyViolation;
+import org.gbif.dp.analysis.api.ResourceAnalysisResult;
 import org.gbif.dp.descriptor.*;
 import org.gbif.dp.duckdb.DuckDbResourceLoader;
-import org.gbif.dp.analysis.model.*;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

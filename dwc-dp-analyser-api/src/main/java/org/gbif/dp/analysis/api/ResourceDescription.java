@@ -1,4 +1,4 @@
-package org.gbif.dp.analysis.model;
+package org.gbif.dp.analysis.api;
 
 import java.util.List;
 

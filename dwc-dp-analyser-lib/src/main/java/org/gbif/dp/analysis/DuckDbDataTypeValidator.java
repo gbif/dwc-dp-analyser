@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 import org.gbif.dp.descriptor.FieldDescriptor;
 import org.gbif.dp.descriptor.ResourceDescriptor;
-import org.gbif.dp.analysis.model.DataTypeViolation;
+import org.gbif.dp.analysis.api.DataTypeViolation;
 
 /**
  * Validates that column values conform to the Frictionless type declared in the schema.

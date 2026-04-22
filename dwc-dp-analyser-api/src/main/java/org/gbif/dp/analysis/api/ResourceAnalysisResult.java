@@ -1,9 +1,4 @@
-package org.gbif.dp.analysis;
-
-import org.gbif.dp.analysis.model.ColumnStatistics;
-import org.gbif.dp.analysis.model.DataTypeViolation;
-import org.gbif.dp.analysis.model.ForeignKeyViolation;
-import org.gbif.dp.analysis.model.PrimaryKeyViolation;
+package org.gbif.dp.analysis.api;
 
 import java.util.List;
 

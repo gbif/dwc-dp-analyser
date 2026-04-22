@@ -1,6 +1,6 @@
 package org.gbif.dp.analysis;
 
-import org.gbif.dp.analysis.model.DatapackageAnalysisResult;
+import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
 
 import java.io.IOException;
 import java.nio.file.Path;

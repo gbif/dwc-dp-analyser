@@ -43,6 +43,7 @@
   <modules>
     <module>dwc-dp-analyser-lib</module>
     <module>dwc-dp-analyser-cli</module>
+    <module>dwc-dp-analyser-api</module>
   </modules>
 
   <properties>

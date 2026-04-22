@@ -7,9 +7,9 @@ import org.gbif.dp.analysis.AnalysisFeature;
 import org.gbif.dp.analysis.DataPackageAnalyser;
 import org.gbif.dp.analysis.DuckDbDataPackageAnalyser;
 import org.gbif.dp.analysis.ValidationOptions;
-import org.gbif.dp.analysis.model.DataTypeViolation;
-import org.gbif.dp.analysis.model.DatapackageAnalysisResult;
-import org.gbif.dp.analysis.model.ForeignKeyViolation;
+import org.gbif.dp.analysis.api.DataTypeViolation;
+import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
+import org.gbif.dp.analysis.api.ForeignKeyViolation;
 import org.gbif.dp.descriptor.JacksonDataPackageParser;
 import org.gbif.dp.duckdb.CustomDuckDbConfig;
 import org.gbif.dp.duckdb.DuckDbResourceLoader;
@@ -21,7 +21,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 public class ValidationCli {
