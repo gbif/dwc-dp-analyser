@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.gbif</groupId>
         <artifactId>dwc-dp-analyser</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <version>0.0.1-SNAPSHOT</version>
     </parent>
 
     <artifactId>dwc-dp-analyser-cli</artifactId>
@@ -15,7 +15,7 @@
     <dependencies>
         <dependency>
             <groupId>org.gbif</groupId>
-            <artifactId>duckdb-dp-lib</artifactId>
+            <artifactId>dwc-dp-analyser-lib</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
