@@ -21,9 +21,6 @@ pipeline {
     string(name: 'DEVELOPMENT_VERSION', defaultValue: '', description: 'Development version (optional)')
     booleanParam(name: 'DRY_RUN_RELEASE', defaultValue: false, description: 'Dry Run Maven release')
   }
-  environment {
-    JETTY_PORT = utils.getPort()
-  }
   stages {
 
     stage('Maven build') {
