@@ -1,5 +1,8 @@
 package org.gbif.dp.duckdb;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -10,6 +13,8 @@ import java.util.stream.Collectors;
 
 public class DuckDbResourceLoader {
 
+  private static final Logger LOG = LoggerFactory.getLogger(DuckDbResourceLoader.class);
+
   public void createResourceTempTable(Connection connection, String resourceName, List<Path> resourcePath)
       throws SQLException {
     String sql =
@@ -17,6 +22,7 @@ public class DuckDbResourceLoader {
             + quotedIdentifier(resourceName)
             + " AS SELECT * FROM "
             + tableFunction(resourcePath);
+    LOG.debug("Running create temporary table sql: [{}]", sql);
     try (Statement statement = connection.createStatement()) {
       statement.execute(sql);
     }
