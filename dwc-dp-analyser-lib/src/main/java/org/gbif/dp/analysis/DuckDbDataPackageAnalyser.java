@@ -107,6 +107,8 @@ public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
         }
         if (!options.duckDbConfig().dbTempDir().isBlank()) {
           st.execute("SET temp_directory = " + sq(options.duckDbConfig().dbTempDir()));
+        } else {
+          st.execute("SET temp_directory = '/var/tmp/.tmp'");
         }
         /*
         if (!options.duckDbConfig().dbMaxTemp().isBlank()) {
