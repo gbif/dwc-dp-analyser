@@ -25,6 +25,9 @@ public class DuckDbResourceLoader {
     LOG.debug("Running create temporary table sql: [{}]", sql);
     try (Statement statement = connection.createStatement()) {
       statement.execute(sql);
+    } catch (SQLException e) {
+      String msg = String.format("Error creating temporary table sql: [%s]", sql);
+      throw new SQLException(e);
     }
   }
 

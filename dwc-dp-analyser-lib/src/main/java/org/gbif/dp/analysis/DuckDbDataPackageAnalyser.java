@@ -107,14 +107,24 @@ public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
         }
         if (!options.duckDbConfig().dbTempDir().isBlank()) {
           st.execute("SET temp_directory = " + sq(options.duckDbConfig().dbTempDir()));
-        } else {
-          st.execute("SET temp_directory = '/var/tmp/.tmp'");
         }
         /*
         if (!options.duckDbConfig().dbMaxTemp().isBlank()) {
           st.execute("PRAGMA temp_directory_size = " + sq(options.duckDbConfig().dbMaxTemp()));
         }
          */
+
+        if (log.isDebugEnabled()) {
+          ResultSet rs = st.executeQuery("SELECT * FROM duckdb_settings()");
+          Map<String, String> duckdbSettings = new HashMap<>();
+          while (rs.next()) {
+            duckdbSettings.put(rs.getString("name"), rs.getString("value"));
+          }
+          String duckdbSettingsAsString = duckdbSettings.entrySet().stream()
+            .map(e -> String.format("'%s'='%s'", e.getKey(), e.getValue()))
+            .collect(Collectors.joining(", "));
+          log.debug("Setting duckdb_settings: [{}]", duckdbSettingsAsString);
+        }
       }
     }
   }
