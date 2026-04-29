@@ -5,15 +5,16 @@ import java.util.List;
 public record ResourceAnalysisResult(
         String name,
         List<ForeignKeyViolation> foreignKeyViolations,
-        PrimaryKeyViolation primaryKeyViolation, List<DataTypeViolation> dataTypeViolations,
+        PrimaryKeyViolation primaryKeyViolation,
+        List<DataTypeViolation> dataTypeViolations,
         List<ColumnStatistics> columnAnalyses,
         long totalRows
 ) {
 
-    public boolean isValid() {
-        boolean validForeignKeys = foreignKeyViolations == null || foreignKeyViolations.isEmpty();
-        boolean validPrimaryKey = primaryKeyViolation == null;
-        boolean validDataType = dataTypeViolations == null || dataTypeViolations.isEmpty();
+    public static boolean isValid(ResourceAnalysisResult result) {
+        boolean validForeignKeys = result.foreignKeyViolations == null || result.foreignKeyViolations.isEmpty();
+        boolean validPrimaryKey = result.primaryKeyViolation == null;
+        boolean validDataType = result.dataTypeViolations == null || result.dataTypeViolations.isEmpty();
         return validForeignKeys && validPrimaryKey && validDataType;
     }
 }
