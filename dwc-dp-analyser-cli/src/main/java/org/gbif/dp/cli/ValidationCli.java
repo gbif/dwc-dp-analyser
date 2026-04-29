@@ -17,6 +17,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 
+import javax.xml.crypto.Data;
+
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -80,7 +82,7 @@ public class ValidationCli {
             printText(result, duration);
         }
 
-        if (!result.isValid()) {
+        if (!DatapackageAnalysisResult.isValid(result)) {
             return EXIT_VALIDATION_ERROR;
         }
 
@@ -93,15 +95,16 @@ public class ValidationCli {
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("result", result);
         output.put("durationSeconds", duration.toSeconds());
+        output.put("valid", DatapackageAnalysisResult.isValid(result));
         System.out.println(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(output));
     }
 
     private static void printText(DatapackageAnalysisResult result, Duration duration) {
-        if (result.isValid()) {
+        if (DatapackageAnalysisResult.isValid(result)) {
             System.out.println("All validations passed.");
         }
 
-        for (ForeignKeyViolation v : result.foreignKeyViolations()) {
+        for (ForeignKeyViolation v : DatapackageAnalysisResult.foreignKeyViolations(result)) {
             System.out.printf("FK violation: %s(%s) -> %s(%s), count=%d%n",
                     v.resource(), String.join(",", v.fields()),
                     v.referenceResource(), String.join(",", v.referenceFields()),
@@ -111,7 +114,7 @@ public class ValidationCli {
             }
         }
 
-        for (DataTypeViolation v : result.dataTypeViolations()) {
+        for (DataTypeViolation v : DatapackageAnalysisResult.dataTypeViolations(result)) {
             System.out.printf("Type violation: %s.%s declared as '%s', count=%d%n",
                     v.resource(), v.field(), v.declaredType(), v.violationCount());
             for (String sample : v.sampleValues()) {

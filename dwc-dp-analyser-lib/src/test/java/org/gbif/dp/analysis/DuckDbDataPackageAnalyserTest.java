@@ -66,9 +66,9 @@ class DuckDbDataPackageAnalyserTest {
             ValidationOptions.defaults(),
             AnalysisFeature.ALL_FEATURES);
 
-    assertFalse(result.isValid());
-    assertEquals(1, result.foreignKeyViolations().size());
-    assertEquals(1, result.foreignKeyViolations().get(0).violationCount());
+    assertFalse(DatapackageAnalysisResult.isValid(result));
+    assertEquals(1, DatapackageAnalysisResult.foreignKeyViolations(result).size());
+    assertEquals(1, DatapackageAnalysisResult.foreignKeyViolations(result).get(0).violationCount());
   }
 
   @Test
@@ -108,22 +108,22 @@ class DuckDbDataPackageAnalyserTest {
             ValidationOptions.defaults(),
             AnalysisFeature.ALL_FEATURES);
 
-    assertTrue(result.foreignKeyViolations().isEmpty());
-    assertFalse(result.isValid());
+    assertTrue(DatapackageAnalysisResult.foreignKeyViolations(result).isEmpty());
+    assertFalse(DatapackageAnalysisResult.isValid(result));
     // age has 1 bad value ("notanumber"), active has 1 ("maybe"), birth_date has 1 ("not-a-date")
-    assertEquals(3, result.dataTypeViolations().size());
+    assertEquals(3, DatapackageAnalysisResult.dataTypeViolations(result).size());
 
-    DataTypeViolation ageViolation = result.dataTypeViolations().stream()
+    DataTypeViolation ageViolation = DatapackageAnalysisResult.dataTypeViolations(result).stream()
         .filter(v -> v.field().equals("age")).findFirst().orElseThrow();
     assertEquals(1, ageViolation.violationCount());
     assertEquals("integer", ageViolation.declaredType());
     assertTrue(ageViolation.sampleValues().contains("notanumber"));
 
-    DataTypeViolation activeViolation = result.dataTypeViolations().stream()
+    DataTypeViolation activeViolation = DatapackageAnalysisResult.dataTypeViolations(result).stream()
         .filter(v -> v.field().equals("active")).findFirst().orElseThrow();
     assertEquals(1, activeViolation.violationCount());
 
-    DataTypeViolation dateViolation = result.dataTypeViolations().stream()
+    DataTypeViolation dateViolation = DatapackageAnalysisResult.dataTypeViolations(result).stream()
         .filter(v -> v.field().equals("birth_date")).findFirst().orElseThrow();
     assertEquals(1, dateViolation.violationCount());
     assertTrue(dateViolation.sampleValues().contains("not-a-date"));
@@ -141,7 +141,7 @@ class DuckDbDataPackageAnalyserTest {
             ValidationOptions.defaults(),
             AnalysisFeature.ALL_FEATURES);
 
-    assertTrue(result.isValid());
+    assertTrue(DatapackageAnalysisResult.isValid(result));
   }
 
   @Test
@@ -198,10 +198,12 @@ class DuckDbDataPackageAnalyserTest {
 
     Files.writeString(
             tempDir.resolve("data.csv"),
-            "id,score\n" +
-                    "1,3.14\n" +
-                    "2,2.71\n" +
-                    "3,2.71\n");
+      """
+        id,score
+        1,3.14
+        2,2.71
+        3,2.71
+        """);
     Files.writeString(
             tempDir.resolve("datapackage.json"),
             """

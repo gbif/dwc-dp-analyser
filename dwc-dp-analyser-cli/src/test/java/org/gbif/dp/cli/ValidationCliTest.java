@@ -84,8 +84,8 @@ class ValidationCliTest {
         JsonNode json = mapper.readTree(output); // throws if not valid JSON
         assertTrue(json.has("result"));
         assertTrue(json.has("durationSeconds"));
-        assertTrue(json.get("result").has("valid"));
-        assertTrue(json.get("result").get("valid").asBoolean());
+        assertTrue(json.has("valid"));
+        assertTrue(json.get("valid").asBoolean());
     }
 
     @Test
