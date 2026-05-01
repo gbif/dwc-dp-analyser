@@ -3,17 +3,20 @@ package org.gbif.dp.analysis.duckdb;
 import org.gbif.dp.descriptor.DialectDescriptor;
 
 
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
+
 import static org.gbif.dp.analysis.duckdb.DuckDbRenderUtils.*;
 
 public class DuckDbDialectRenderer {
 
   public String toReadCsvArgs(DialectDescriptor dialect, String filename) {
-    DialectDescriptor effective = dialect != null
-      ? dialect
-      : DialectDescriptor.fromExtension(filename);
+    dialect = getOrDefaultOnFilename(dialect, filename);
 
     StringBuilder sb = new StringBuilder();
-    sb.append("delim=").append(sq(effective.delimiter()));
+    sb.append("delim=").append(sq(dialect.delimiter()));
     sb.append(", header=true");
     sb.append(", sample_size=-1");
 
@@ -35,4 +38,26 @@ public class DuckDbDialectRenderer {
     return sb.toString();
   }
 
+  private static DialectDescriptor getOrDefaultOnFilename(DialectDescriptor dialect, String filename) {
+    if (dialect != null) {
+      return dialect;
+    }
+    return DialectDescriptor.fromExtension(filename);
+  }
+
+  public String buildReadQuery(List<Path> paths, DialectDescriptor dialect) {
+    String joinedPaths = paths.stream()
+      .map(Path::toAbsolutePath)
+      .map(Object::toString)
+      .map(str -> str.replace("'", "''"))
+      .map(str -> "'" + str + "'")
+      .collect(Collectors.joining(", "));
+
+    String filename = paths.get(0).toAbsolutePath().toString();
+
+    if (filename.toLowerCase(Locale.ROOT).endsWith(".parquet")) {
+      return "read_parquet([" + joinedPaths + "])";
+    }
+    return "read_csv_auto([" + joinedPaths + "], " + toReadCsvArgs(dialect, filename) + ")";
+  }
 }

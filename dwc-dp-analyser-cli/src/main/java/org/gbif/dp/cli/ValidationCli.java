@@ -10,6 +10,8 @@ import org.gbif.dp.analysis.ValidationOptions;
 import org.gbif.dp.analysis.api.DataTypeViolation;
 import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
 import org.gbif.dp.analysis.api.ForeignKeyViolation;
+import org.gbif.dp.analysis.duckdb.DuckDbDialectRenderer;
+import org.gbif.dp.analysis.duckdb.DuckDbResourceLoader;
 import org.gbif.dp.descriptor.JacksonDataPackageParser;
 import org.gbif.dp.duckdb.CustomDuckDbConfig;
 
@@ -64,7 +66,7 @@ public class ValidationCli {
 
         DataPackageAnalyser validator = new DuckDbDataPackageAnalyser(
                 new JacksonDataPackageParser(),
-                new DuckDbResourceLoader());
+                new DuckDbResourceLoader(new DuckDbDialectRenderer()));
         ValidationOptions defaultOptions = ValidationOptions.defaults();
         ValidationOptions validationOptions = new ValidationOptions(
                 defaultOptions.sampleSize(), defaultOptions.jdbcUrl(), customDuckDbConfig);

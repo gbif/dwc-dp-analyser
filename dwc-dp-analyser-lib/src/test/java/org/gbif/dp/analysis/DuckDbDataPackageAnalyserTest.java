@@ -399,6 +399,149 @@ class DuckDbDataPackageAnalyserTest {
     assertEquals(2, scoreStats.populatedValues(), "score: empty cell is null, '-1' is a real (if invalid) value");
   }
 
+  @Test
+  void shouldReadTsvViaDialect() throws Exception {
+    Path tempDir = Files.createTempDirectory("dp-tsv-dialect-");
+
+    Files.writeString(tempDir.resolve("data.tsv"),
+      "id\tname\n1\tearth\n2\tmars\n");
+    Files.writeString(tempDir.resolve("datapackage.json"),
+      """
+      {
+        "name": "tsv-test",
+        "resources": [
+          {
+            "name": "data",
+            "path": "data.tsv",
+            "mediatype": "text/csv",
+            "dialect": { "delimiter": "\\t" },
+            "schema": {
+              "fields": [
+                { "name": "id",   "type": "integer" },
+                { "name": "name", "type": "string"  }
+              ]
+            }
+          }
+        ]
+      }
+      """);
+
+    DatapackageAnalysisResult result = validator.analyse(
+      tempDir.resolve("datapackage.json"),
+      ValidationOptions.defaults(),
+      List.of(AnalysisFeature.COUNT));
+
+    ResourceAnalysisResult resource = result.resourceAnalysisResults().get(0);
+    assertEquals(2, resource.totalRows());
+  }
+
+  @Test
+  void shouldReadTsvViaExtensionFallback() throws Exception {
+    Path tempDir = Files.createTempDirectory("dp-tsv-ext-");
+
+    Files.writeString(tempDir.resolve("data.tsv"),
+      "id\tname\n1\tearth\n2\tmars\n");
+    Files.writeString(tempDir.resolve("datapackage.json"),
+      """
+      {
+        "name": "tsv-ext-test",
+        "resources": [
+          {
+            "name": "data",
+            "path": "data.tsv",
+            "mediatype": "text/csv",
+            "schema": {
+              "fields": [
+                { "name": "id",   "type": "integer" },
+                { "name": "name", "type": "string"  }
+              ]
+            }
+          }
+        ]
+      }
+      """);
+
+    DatapackageAnalysisResult result = validator.analyse(
+      tempDir.resolve("datapackage.json"),
+      ValidationOptions.defaults(),
+      List.of(AnalysisFeature.COUNT));
+
+    ResourceAnalysisResult resource = result.resourceAnalysisResults().get(0);
+    assertEquals(2, resource.totalRows());
+  }
+
+  @Test
+  void shouldReadSemicolonDelimitedFile() throws Exception {
+    Path tempDir = Files.createTempDirectory("dp-semicolon-");
+
+    Files.writeString(tempDir.resolve("data.csv"),
+      "id;name\n1;earth\n2;mars\n");
+    Files.writeString(tempDir.resolve("datapackage.json"),
+      """
+      {
+        "name": "semicolon-test",
+        "resources": [
+          {
+            "name": "data",
+            "path": "data.csv",
+            "mediatype": "text/csv",
+            "dialect": { "delimiter": ";" },
+            "schema": {
+              "fields": [
+                { "name": "id",   "type": "integer" },
+                { "name": "name", "type": "string"  }
+              ]
+            }
+          }
+        ]
+      }
+      """);
+
+    DatapackageAnalysisResult result = validator.analyse(
+      tempDir.resolve("datapackage.json"),
+      ValidationOptions.defaults(),
+      List.of(AnalysisFeature.COUNT));
+
+    ResourceAnalysisResult resource = result.resourceAnalysisResults().get(0);
+    assertEquals(2, resource.totalRows());
+  }
+
+  @Test
+  void shouldHandleQuotedFieldsContainingDelimiter() throws Exception {
+    Path tempDir = Files.createTempDirectory("dp-quoted-");
+
+    Files.writeString(tempDir.resolve("data.csv"),
+      "id,name\n1,\"earth, the planet\"\n2,mars\n");
+    Files.writeString(tempDir.resolve("datapackage.json"),
+      """
+      {
+        "name": "quoted-test",
+        "resources": [
+          {
+            "name": "data",
+            "path": "data.csv",
+            "mediatype": "text/csv",
+            "dialect": { "delimiter": ",", "quoteChar": "\\"" },
+            "schema": {
+              "fields": [
+                { "name": "id",   "type": "integer" },
+                { "name": "name", "type": "string"  }
+              ]
+            }
+          }
+        ]
+      }
+      """);
+
+    DatapackageAnalysisResult result = validator.analyse(
+      tempDir.resolve("datapackage.json"),
+      ValidationOptions.defaults(),
+      List.of(AnalysisFeature.COUNT));
+
+    ResourceAnalysisResult resource = result.resourceAnalysisResults().get(0);
+    assertEquals(2, resource.totalRows());
+  }
+
   // Helper to avoid repetition
   private static ColumnStatistics getColumnStats(DatapackageAnalysisResult result, String resource, String column) {
     return result.resourceAnalysisResults().stream()

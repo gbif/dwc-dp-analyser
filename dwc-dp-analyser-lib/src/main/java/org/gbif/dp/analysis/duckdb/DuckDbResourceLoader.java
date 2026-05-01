@@ -10,8 +10,6 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
-import java.util.Locale;
-import java.util.stream.Collectors;
 
 import static org.gbif.dp.analysis.duckdb.DuckDbRenderUtils.q;
 
@@ -27,7 +25,7 @@ public class DuckDbResourceLoader {
   public void createResourceTempTable(
     Connection connection, String name, List<Path> paths, DialectDescriptor dialect)
     throws SQLException {
-    String sql = "CREATE TEMP TABLE " + q(name) + " AS SELECT * FROM " + tableFunction(paths, dialect);
+    String sql = "CREATE TEMP TABLE " + q(name) + " AS SELECT * FROM " + dialectRenderer.buildReadQuery(paths, dialect);
     log.debug("Running create temporary table sql: [{}]", sql);
     try (Statement statement = connection.createStatement()) {
       statement.execute(sql);
@@ -36,20 +34,4 @@ public class DuckDbResourceLoader {
     }
   }
 
-  private String tableFunction(List<Path> paths, DialectDescriptor dialect) {
-    String joinedPaths = paths.stream()
-      .map(Path::toAbsolutePath)
-      .map(Object::toString)
-      .map(str -> str.replace("'", "''"))
-      .map(str -> "'" + str + "'")
-      .collect(Collectors.joining(", "));
-
-    String firstName = paths.get(0).toAbsolutePath().toString();
-
-    if (firstName.toLowerCase(Locale.ROOT).endsWith(".parquet")) {
-      return "read_parquet([" + joinedPaths + "])";
-    }
-
-    return "read_csv_auto([" + joinedPaths + "], " + dialectRenderer.toReadCsvArgs(dialect, firstName) + ")";
-  }
 }

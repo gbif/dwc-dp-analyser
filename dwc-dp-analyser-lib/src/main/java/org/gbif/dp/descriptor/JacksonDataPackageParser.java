@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Predicate;
 import java.util.stream.StreamSupport;
@@ -81,8 +82,8 @@ public class JacksonDataPackageParser implements DataPackageParser {
   }
 
   private DialectDescriptor parseDialect(JsonNode node, Path path) {
-    if (node == null || node.isNull()) {
-      if (path != null && path.endsWith(".tsv")) {
+    if (node == null || node.isNull() || node.isMissingNode()) {
+      if (path != null && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".tsv")) {
         return DialectDescriptor.builder().delimiter("\t").build();
       }
       return DialectDescriptor.defaults();
