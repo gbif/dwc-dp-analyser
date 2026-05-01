@@ -8,4 +8,5 @@ public record ResourceDescriptor(
     List<Path> paths,
     List<FieldDescriptor> fields,
     List<ForeignKeyDescriptor> foreignKeys,
-    PrimaryKeyDescriptor primaryKey) {}
+    PrimaryKeyDescriptor primaryKey,
+    DialectDescriptor dialect) {}

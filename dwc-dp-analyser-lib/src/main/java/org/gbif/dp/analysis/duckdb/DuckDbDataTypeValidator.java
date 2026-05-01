@@ -1,4 +1,4 @@
-package org.gbif.dp.analysis;
+package org.gbif.dp.analysis.duckdb;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;

@@ -5,6 +5,6 @@ import java.util.Map;
 
 public record DataPackageDescriptor(
     String name,
-    List<ResourceDescriptor> resources,
-    Map<String, ResourceDescriptor> resourcesByName) {}
+    List<ResourceDescriptor> resources
+    ) {}
 

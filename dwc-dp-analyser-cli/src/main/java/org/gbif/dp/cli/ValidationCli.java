@@ -5,19 +5,17 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.gbif.dp.analysis.AnalysisFeature;
 import org.gbif.dp.analysis.DataPackageAnalyser;
-import org.gbif.dp.analysis.DuckDbDataPackageAnalyser;
+import org.gbif.dp.analysis.duckdb.DuckDbDataPackageAnalyser;
 import org.gbif.dp.analysis.ValidationOptions;
 import org.gbif.dp.analysis.api.DataTypeViolation;
 import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
 import org.gbif.dp.analysis.api.ForeignKeyViolation;
 import org.gbif.dp.descriptor.JacksonDataPackageParser;
 import org.gbif.dp.duckdb.CustomDuckDbConfig;
-import org.gbif.dp.duckdb.DuckDbResourceLoader;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
-
-import javax.xml.crypto.Data;
 
 import java.nio.file.Path;
 import java.time.Duration;

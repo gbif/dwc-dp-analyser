@@ -11,13 +11,28 @@ import java.util.List;
 
 import org.gbif.dp.analysis.api.ColumnStatistics;
 import org.gbif.dp.analysis.api.ResourceAnalysisResult;
+import org.gbif.dp.analysis.duckdb.DuckDbDataPackageAnalyser;
+import org.gbif.dp.analysis.duckdb.DuckDbDialectRenderer;
+import org.gbif.dp.analysis.duckdb.DuckDbRenderUtils;
+import org.gbif.dp.analysis.duckdb.DuckDbResourceLoader;
 import org.gbif.dp.descriptor.JacksonDataPackageParser;
-import org.gbif.dp.duckdb.DuckDbResourceLoader;
 import org.gbif.dp.analysis.api.DataTypeViolation;
 import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class DuckDbDataPackageAnalyserTest {
+
+  DataPackageAnalyser validator;
+
+  @BeforeEach
+  void setup() {
+    this.validator = new DuckDbDataPackageAnalyser(
+      new JacksonDataPackageParser(),
+      new DuckDbResourceLoader(new DuckDbDialectRenderer())
+    );
+  }
 
   @Test
   void shouldValidateForeignKeysFromDescriptor() throws Exception {
@@ -58,9 +73,6 @@ class DuckDbDataPackageAnalyserTest {
         }
         """);
 
-    DataPackageAnalyser validator =
-        new DuckDbDataPackageAnalyser(new JacksonDataPackageParser(), new DuckDbResourceLoader());
-
     DatapackageAnalysisResult result = validator.analyse(
             tempDir.resolve("datapackage.json"),
             ValidationOptions.defaults(),
@@ -100,9 +112,6 @@ class DuckDbDataPackageAnalyserTest {
         }
         """);
 
-    DataPackageAnalyser validator =
-        new DuckDbDataPackageAnalyser(new JacksonDataPackageParser(), new DuckDbResourceLoader());
-
     DatapackageAnalysisResult result = validator.analyse(
             tempDir.resolve("datapackage.json"),
             ValidationOptions.defaults(),
@@ -133,9 +142,6 @@ class DuckDbDataPackageAnalyserTest {
   void shouldPassWhenAllTypesAreCorrect() throws Exception {
     Path tempDir = setupSmallValidDataset();
 
-    DataPackageAnalyser validator =
-        new DuckDbDataPackageAnalyser(new JacksonDataPackageParser(), new DuckDbResourceLoader());
-
     DatapackageAnalysisResult result = validator.analyse(
             tempDir.resolve("datapackage.json"),
             ValidationOptions.defaults(),
@@ -147,9 +153,6 @@ class DuckDbDataPackageAnalyserTest {
   @Test
   void shouldHaveJustTwoLines() throws Exception {
     Path tempDir = setupSmallValidDataset();
-
-    DataPackageAnalyser validator =
-            new DuckDbDataPackageAnalyser(new JacksonDataPackageParser(), new DuckDbResourceLoader());
 
     DatapackageAnalysisResult result = validator.analyse(
             tempDir.resolve("datapackage.json"),
@@ -173,9 +176,6 @@ class DuckDbDataPackageAnalyserTest {
   @Test
   void shouldOnlyCalculateChoosenFeatures() throws Exception {
     Path tempDir = setupSmallValidDataset();
-
-    DataPackageAnalyser validator =
-            new DuckDbDataPackageAnalyser(new JacksonDataPackageParser(), new DuckDbResourceLoader());
 
     DatapackageAnalysisResult result = validator.analyse(
             tempDir.resolve("datapackage.json"),
@@ -229,7 +229,7 @@ class DuckDbDataPackageAnalyserTest {
   @Test
   void shouldNotReQuoteAlreadyQouted() {
     String value = "\"field\"";
-    String reqouted = DuckDbDataPackageAnalyser.q(value);
+    String reqouted = DuckDbRenderUtils.q(value);
 
     assertEquals(value, reqouted, "Expect multiple repeated invocations of qouting to have no effect");
   }
@@ -260,9 +260,6 @@ class DuckDbDataPackageAnalyserTest {
               ]
             }
             """);
-
-    DataPackageAnalyser validator =
-            new DuckDbDataPackageAnalyser(new JacksonDataPackageParser(), new DuckDbResourceLoader());
 
     DatapackageAnalysisResult result = validator.analyse(
             tempDir.resolve("datapackage.json"),
@@ -307,9 +304,6 @@ class DuckDbDataPackageAnalyserTest {
             }
             """);
 
-    DataPackageAnalyser validator =
-            new DuckDbDataPackageAnalyser(new JacksonDataPackageParser(), new DuckDbResourceLoader());
-
     DatapackageAnalysisResult result = validator.analyse(
             tempDir.resolve("datapackage.json"),
             ValidationOptions.defaults(),
@@ -350,9 +344,6 @@ class DuckDbDataPackageAnalyserTest {
               ]
             }
             """);
-
-    DataPackageAnalyser validator =
-            new DuckDbDataPackageAnalyser(new JacksonDataPackageParser(), new DuckDbResourceLoader());
 
     DatapackageAnalysisResult result = validator.analyse(
             tempDir.resolve("datapackage.json"),
@@ -396,9 +387,6 @@ class DuckDbDataPackageAnalyserTest {
               ]
             }
             """);
-
-    DataPackageAnalyser validator =
-            new DuckDbDataPackageAnalyser(new JacksonDataPackageParser(), new DuckDbResourceLoader());
 
     DatapackageAnalysisResult result = validator.analyse(
             tempDir.resolve("datapackage.json"),

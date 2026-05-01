@@ -1,4 +1,4 @@
-package org.gbif.dp.analysis;
+package org.gbif.dp.analysis.duckdb;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -14,6 +14,9 @@ import java.util.Map;
 import java.util.StringJoiner;
 import java.util.stream.Collectors;
 
+import org.gbif.dp.analysis.AnalysisFeature;
+import org.gbif.dp.analysis.DataPackageAnalyser;
+import org.gbif.dp.analysis.ValidationOptions;
 import org.gbif.dp.analysis.api.ColumnStatistics;
 import org.gbif.dp.analysis.api.DataTypeViolation;
 import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
@@ -21,10 +24,13 @@ import org.gbif.dp.analysis.api.ForeignKeyViolation;
 import org.gbif.dp.analysis.api.PrimaryKeyViolation;
 import org.gbif.dp.analysis.api.ResourceAnalysisResult;
 import org.gbif.dp.descriptor.*;
-import org.gbif.dp.duckdb.DuckDbResourceLoader;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.gbif.dp.analysis.duckdb.DuckDbRenderUtils.q;
+import static org.gbif.dp.analysis.duckdb.DuckDbRenderUtils.sq;
+
 
 public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
 
@@ -57,7 +63,7 @@ public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
 
       for (ResourceDescriptor resource : dataPackageDescriptor.resources()) {
         log.info("Creating temp table for {} -> {}", resource.name(), resource.paths());
-        resourceLoader.createResourceTempTable(connection, resource.name(), resource.paths());
+        resourceLoader.createResourceTempTable(connection, resource.name(), resource.paths(), resource.dialect());
       }
 
       log.info("Running analysis for: [{}]", dataPackageDescriptor.name());
@@ -127,10 +133,6 @@ public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
         }
       }
     }
-  }
-
-  private String sq(String s) {
-    return "'" + s + "'";
   }
 
   private ResourceAnalysisResult analyseResource(ValidationOptions options,
@@ -355,7 +357,10 @@ public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
 
     ReferenceDescriptor reference = key.reference();
     String parentName = reference.resource().isBlank() ? resource.name() : reference.resource();
-    ResourceDescriptor parentResource = dataPackage.resourcesByName().get(parentName);
+    ResourceDescriptor parentResource = dataPackage.resources().stream()
+      .filter(resourceDescriptor ->  resourceDescriptor.name().equals(parentName))
+      .findFirst()
+      .orElse(null);
     if (parentResource == null) {
       return new ForeignKeyViolation(resource.name(), key.fields(), parentName, reference.fields(), 0L, List.of());
     }
@@ -376,17 +381,6 @@ public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
 
     return new ForeignKeyViolation(
       resource.name(), key.fields(), parentResource.name(), reference.fields(), count, samples);
-  }
-
-  private String buildCountQuerySql(String name, List<String> keys) {
-    String sumOfKeysSql = keys.stream()
-      .map(key -> "COUNT(" + q(key) + ")")
-      .collect(Collectors.joining(", "));
-
-    return "SELECT COUNT(*), " +
-      sumOfKeysSql +
-      " FROM " +
-      q(name);
   }
 
   private List<Map<String, Object>> fetchForeignKeySampleRows(
@@ -481,13 +475,4 @@ public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
     return joiner.toString();
   }
 
-  static String q(String identifier) {
-    if (identifier.length() > 2
-      && identifier.substring(0, 1).equalsIgnoreCase("\"")
-      && identifier.substring(identifier.length() - 1).equalsIgnoreCase("\"")
-    ) {
-      return identifier;
-    }
-    return '"' + identifier.replace("\"", "\"\"") + '"';
-  }
 }

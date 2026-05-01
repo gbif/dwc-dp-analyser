@@ -29,11 +29,10 @@ public class JacksonDataPackageParser implements DataPackageParser {
     String packageName = root.path("name").asText("");
 
     List<ResourceDescriptor> resources = new ArrayList<>();
-    Map<String, ResourceDescriptor> byName = new HashMap<>();
 
     JsonNode resourceNodes = root.path("resources");
     if (!resourceNodes.isArray()) {
-      return new DataPackageDescriptor(packageName, List.of(), Map.of());
+      return new DataPackageDescriptor(packageName, List.of());
     }
 
     for (JsonNode resourceNode : resourceNodes) {
@@ -60,23 +59,47 @@ public class JacksonDataPackageParser implements DataPackageParser {
         continue;
       }
 
-      JsonNode schemaNode = resourceNode.path("schema");
-      List<MissingValueDescriptor> defaultMissingValues = parseMissingValues(
-              schemaNode.path("missingValues"),
-              MissingValueDescriptor.Source.SCHEMA,
-              List.of(MissingValueDescriptor.NULL));
-      List<FieldDescriptor> fields = parseFields(schemaNode.path("fields"), defaultMissingValues);
-      List<ForeignKeyDescriptor> foreignKeys = parseForeignKeys(schemaNode.path("foreignKeys"));
-      PrimaryKeyDescriptor primaryKey = parsePrimaryKey(schemaNode.path("primaryKey"));
-      ResourceDescriptor descriptor = new ResourceDescriptor(name, paths, fields, foreignKeys, primaryKey);
+      ResourceDescriptor descriptor = parseResourceDescriptor(resourceNode, name, paths);
       resources.add(descriptor);
-      byName.put(name, descriptor);
     }
 
-    return new DataPackageDescriptor(packageName, List.copyOf(resources), Map.copyOf(byName));
+    return new DataPackageDescriptor(packageName, List.copyOf(resources));
   }
 
-    private static List<MissingValueDescriptor> parseMissingValues(
+  private ResourceDescriptor parseResourceDescriptor(JsonNode resourceNode, String name, List<Path> paths) {
+    JsonNode schemaNode = resourceNode.path("schema");
+    List<MissingValueDescriptor> defaultMissingValues = parseMissingValues(
+            schemaNode.path("missingValues"),
+            MissingValueDescriptor.Source.SCHEMA,
+            List.of(MissingValueDescriptor.NULL));
+    List<FieldDescriptor> fields = parseFields(schemaNode.path("fields"), defaultMissingValues);
+    List<ForeignKeyDescriptor> foreignKeys = parseForeignKeys(schemaNode.path("foreignKeys"));
+    PrimaryKeyDescriptor primaryKey = parsePrimaryKey(schemaNode.path("primaryKey"));
+    DialectDescriptor dialect = parseDialect(resourceNode.path("dialect"), paths.stream().findFirst().orElse(null));
+    ResourceDescriptor descriptor = new ResourceDescriptor(name, paths, fields, foreignKeys, primaryKey, dialect);
+    return descriptor;
+  }
+
+  private DialectDescriptor parseDialect(JsonNode node, Path path) {
+    if (node == null || node.isNull()) {
+      if (path != null && path.endsWith(".tsv")) {
+        return DialectDescriptor.builder().delimiter("\t").build();
+      }
+      return DialectDescriptor.defaults();
+    }
+
+    return DialectDescriptor.builder()
+      .delimiter(node.path("delimiter").asText(","))
+      .quoteChar(node.path("quoteChar").asText("\""))
+      .escapeChar(node.has("escapeChar") ? node.get("escapeChar").asText() : null)
+      .doubleQuote(node.path("doubleQuote").asBoolean(true))
+      .lineTerminator(node.path("lineTerminator").asText("\r\n"))
+      .skipInitialSpace(node.path("skipInitialSpace").asBoolean(false))
+      .nullSequence(node.has("nullSequence") ? node.get("nullSequence").asText() : null)
+      .build();
+  }
+
+  private static List<MissingValueDescriptor> parseMissingValues(
             JsonNode node,
             MissingValueDescriptor.Source source,
             List<MissingValueDescriptor> defaultValues) {
