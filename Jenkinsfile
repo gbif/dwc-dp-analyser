@@ -61,7 +61,7 @@ pipeline {
       when {
           allOf {
               expression { params.RELEASE };
-              branch 'main';
+              branch 'master';
           }
       }
       environment {
