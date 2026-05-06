@@ -62,23 +62,118 @@ public class EmlValidator {
   private static final Schema EML_SCHEMA = loadSchemaOnce();
 
   private static Schema loadSchemaOnce() {
-    try (InputStream is = EmlValidator.class.getResourceAsStream(EML_SCHEMA_CLASSPATH)) {
-      if (is == null) {
-        log.warn("Bundled EML 2.2.0 schema not found at classpath:{}. "
-            + "XSD validation will be skipped. "
-            + "Add eml.xsd to src/main/resources/eml-2.2.0/xsd to enable it.",
-          EML_SCHEMA_CLASSPATH);
-        return null;
+    try {
+      SchemaFactory factory = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
+      factory.setResourceResolver((type, namespaceURI, publicId, systemId, baseURI) -> {
+        String siblingPath = "/eml-2.2.0/xsd/" + systemId;
+        InputStream is = EmlValidator.class.getResourceAsStream(siblingPath);
+        if (is == null) {
+          log.warn("Could not resolve XSD import: {}", siblingPath);
+          return null;
+        }
+        return new ClasspathLSInput(systemId, is);
+      });
+
+      try (InputStream is = EmlValidator.class.getResourceAsStream(EML_SCHEMA_CLASSPATH)) {
+        if (is == null) {
+          log.warn("Bundled EML 2.2.0 schema not found at classpath:{}. "
+            + "XSD validation will be skipped.", EML_SCHEMA_CLASSPATH);
+          return null;
+        }
+        Schema schema = factory.newSchema(new StreamSource(is, EML_SCHEMA_CLASSPATH));
+        log.debug("EML 2.2.0 schema loaded from classpath");
+        return schema;
       }
-      Schema schema = SchemaFactory
-        .newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI)
-        .newSchema(new StreamSource(is, EML_SCHEMA_CLASSPATH));
-      log.debug("EML 2.2.0 schema loaded from classpath");
-      return schema;
     } catch (Exception e) {
       log.warn("Failed to load bundled EML schema — XSD validation will be skipped: {}",
         e.getMessage());
       return null;
+    }
+  }
+
+  /**
+   * Minimal LSInput implementation for classpath-resolved XSD imports.
+   */
+  private static final class ClasspathLSInput implements org.w3c.dom.ls.LSInput {
+    private final String systemId;
+    private InputStream byteStream;
+
+    ClasspathLSInput(String systemId, InputStream byteStream) {
+      this.systemId = systemId;
+      this.byteStream = byteStream;
+    }
+
+    @Override
+    public InputStream getByteStream() {
+      return byteStream;
+    }
+
+    @Override
+    public void setByteStream(InputStream s) {
+      this.byteStream = s;
+    }
+
+    @Override
+    public String getSystemId() {
+      return systemId;
+    }
+
+    @Override
+    public void setSystemId(String s) {
+    }
+
+    @Override
+    public String getBaseURI() {
+      return null;
+    }
+
+    @Override
+    public void setBaseURI(String s) {
+    }
+
+    @Override
+    public String getPublicId() {
+      return null;
+    }
+
+    @Override
+    public void setPublicId(String s) {
+    }
+
+    @Override
+    public java.io.Reader getCharacterStream() {
+      return null;
+    }
+
+    @Override
+    public void setCharacterStream(java.io.Reader r) {
+    }
+
+    @Override
+    public String getStringData() {
+      return null;
+    }
+
+    @Override
+    public void setStringData(String s) {
+    }
+
+    @Override
+    public String getEncoding() {
+      return null;
+    }
+
+    @Override
+    public void setEncoding(String s) {
+    }
+
+    @Override
+    public boolean getCertifiedText() {
+      return false;
+    }
+
+    @Override
+    public void setCertifiedText(boolean b) {
     }
   }
 
