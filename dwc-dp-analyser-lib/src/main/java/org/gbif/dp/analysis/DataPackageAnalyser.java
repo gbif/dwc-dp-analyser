@@ -9,7 +9,7 @@ import java.util.List;
 
 public interface DataPackageAnalyser {
 
-  DatapackageAnalysisResult analyse(Path descriptorPath, ValidationOptions options, List<AnalysisFeature> analysisFeatures)
+  DatapackageAnalysisResult analyse(Path descriptorPath, org.gbif.dp.analysis.api.ValidationOptions options, List<org.gbif.dp.analysis.api.AnalysisFeature> analysisFeatures)
           throws IOException, SQLException;
 }
 

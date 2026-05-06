@@ -39,28 +39,28 @@
   </distributionManagement>
 
   <modules>
+    <!-- Validator modules must come before analyser modules (transitive deps) -->
+    <module>dwc-dp-validator</module>
+    <module>dwc-dp-analyser-api</module>
     <module>dwc-dp-analyser-lib</module>
     <module>dwc-dp-analyser-cli</module>
-    <module>dwc-dp-analyser-api</module>
   </modules>
 
   <properties>
-    <!-- General java versions and properties -->
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
     <maven.compiler.release>17</maven.compiler.release>
     <java.version>17</java.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-    <!-- library versions -->
     <duckdb.version>0.10.0</duckdb.version>
     <picocli.version>4.7.6</picocli.version>
     <jackson.version>2.18.2</jackson.version>
     <slf4j.version>2.0.17</slf4j.version>
     <logback.version>1.5.32</logback.version>
-
-    <!-- Test library versions -->
     <junit.version>5.11.4</junit.version>
+    <networknt.version>2.0.1</networknt.version>
+    <dwc-dp-schemas.version>0.0.1</dwc-dp-schemas.version>
   </properties>
 
   <repositories>
@@ -72,17 +72,43 @@
       <id>thirdparty</id>
       <url>https://repository.gbif.org/content/repositories/thirdparty</url>
     </repository>
-    <repository>
-      <id>repository.cloudera.com</id>
-      <url>https://repository.cloudera.com/content/repositories/releases/</url>
-      <snapshots>
-        <enabled>false</enabled>
-      </snapshots>
-    </repository>
   </repositories>
 
   <dependencyManagement>
     <dependencies>
+      <!-- Validator modules -->
+      <dependency>
+        <groupId>org.gbif</groupId>
+        <artifactId>dwc-dp-validator-api</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.gbif</groupId>
+        <artifactId>dwc-dp-validator-frictionless</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.gbif</groupId>
+        <artifactId>dwc-dp-validator-dwcdp</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.gbif</groupId>
+        <artifactId>dwc-dp-validator-eml</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+
+      <!-- Third-party -->
+      <dependency>
+        <groupId>com.networknt</groupId>
+        <artifactId>json-schema-validator</artifactId>
+        <version>${networknt.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.gbif</groupId>
+        <artifactId>dwc-dp-schemas</artifactId>
+        <version>${dwc-dp-schemas.version}</version>
+      </dependency>
       <dependency>
         <groupId>org.duckdb</groupId>
         <artifactId>duckdb_jdbc</artifactId>

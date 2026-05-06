@@ -14,16 +14,18 @@ import java.util.Map;
 import java.util.StringJoiner;
 import java.util.stream.Collectors;
 
-import org.gbif.dp.analysis.AnalysisFeature;
-import org.gbif.dp.analysis.DataPackageAnalyser;
-import org.gbif.dp.analysis.ValidationOptions;
+import org.gbif.dp.analysis.api.AnalysisFeature;
 import org.gbif.dp.analysis.api.ColumnStatistics;
+import org.gbif.dp.analysis.api.DataAnalyser;
 import org.gbif.dp.analysis.api.DataTypeViolation;
-import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
 import org.gbif.dp.analysis.api.ForeignKeyViolation;
 import org.gbif.dp.analysis.api.PrimaryKeyViolation;
 import org.gbif.dp.analysis.api.ResourceAnalysisResult;
+import org.gbif.dp.analysis.api.ValidationOptions;
 import org.gbif.dp.descriptor.*;
+import org.gbif.dp.duckdb.DuckDbConfig;
+
+import org.gbif.dp.duckdb.DuckDbConfigBuilder;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,274 +33,253 @@ import org.slf4j.LoggerFactory;
 import static org.gbif.dp.analysis.duckdb.DuckDbRenderUtils.q;
 import static org.gbif.dp.analysis.duckdb.DuckDbRenderUtils.sq;
 
-
-public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
+/**
+ * DuckDB-backed implementation of {@link DataAnalyser}.
+ *
+ * <p>Responsible only for data-level checks: foreign keys, primary keys, data type
+ * constraints, and column statistics. Descriptor and EML validation are entirely out
+ * of scope — see {@link org.gbif.dp.analysis.DefaultDataPackageAnalysisOrchestrator}.
+ *
+ * <p>DuckDB configuration (JDBC URL, memory limits, thread count, temp directory) is
+ * supplied at construction via {@link DuckDbConfig} — it is not part of the
+ * {@link DataAnalyser} interface contract.
+ */
+public class DuckDbDataPackageAnalyser implements DataAnalyser {
 
   private static final Logger log = LoggerFactory.getLogger(DuckDbDataPackageAnalyser.class);
 
   private final DataPackageParser parser;
   private final DuckDbResourceLoader resourceLoader;
   private final DuckDbDataTypeValidator dataTypeValidator;
+  private final DuckDbConfig config;
 
+  /**
+   * Convenience constructor using default in-memory DuckDB config.
+   */
   public DuckDbDataPackageAnalyser(DataPackageParser parser, DuckDbResourceLoader resourceLoader) {
-    this(parser, resourceLoader, new DuckDbDataTypeValidator());
+    this(parser, resourceLoader, new DuckDbDataTypeValidator(), DuckDbConfigBuilder.defaults().build());
   }
 
   public DuckDbDataPackageAnalyser(
     DataPackageParser parser,
     DuckDbResourceLoader resourceLoader,
-    DuckDbDataTypeValidator dataTypeValidator) {
+    DuckDbConfig config) {
+    this(parser, resourceLoader, new DuckDbDataTypeValidator(), config);
+  }
+
+  public DuckDbDataPackageAnalyser(
+    DataPackageParser parser,
+    DuckDbResourceLoader resourceLoader,
+    DuckDbDataTypeValidator dataTypeValidator,
+    DuckDbConfig config) {
+
     this.parser = parser;
     this.resourceLoader = resourceLoader;
     this.dataTypeValidator = dataTypeValidator;
+    this.config = config;
   }
 
   @Override
-  public DatapackageAnalysisResult analyse(Path descriptorPath, ValidationOptions options, List<AnalysisFeature> analysisFeatures)
+  public List<ResourceAnalysisResult> analyse(
+    Path descriptorPath, ValidationOptions options, List<AnalysisFeature> features)
     throws IOException, SQLException {
-    DataPackageDescriptor dataPackageDescriptor = parser.parse(descriptorPath);
 
-    try (Connection connection = DriverManager.getConnection(options.jdbcUrl())) {
-      applyDuckDbOptions(options, connection);
+    DataPackageDescriptor descriptor = parser.parse(descriptorPath);
 
-      for (ResourceDescriptor resource : dataPackageDescriptor.resources()) {
+    try (Connection connection = DriverManager.getConnection(config.jdbcUrl())) {
+      applyConfig(connection);
+
+      for (ResourceDescriptor resource : descriptor.resources()) {
         log.info("Creating temp table for {} -> {}", resource.name(), resource.paths());
-        resourceLoader.createResourceTempTable(connection, resource.name(), resource.paths(), resource.dialect());
+        resourceLoader.createResourceTempTable(
+          connection, resource.name(), resource.paths(), resource.dialect());
       }
 
-      log.info("Running analysis for: [{}]", dataPackageDescriptor.name());
-      List<ResourceAnalysisResult> resourceAnalysisResults = analyseEachResource(options, analysisFeatures, dataPackageDescriptor, connection);
-
-      return new DatapackageAnalysisResult(
-        List.copyOf(resourceAnalysisResults)
-      );
+      log.info("Running data analysis for: [{}]", descriptor.name());
+      return analyseEachResource(options, features, descriptor, connection);
     }
   }
 
-  private List<DataTypeViolation> analyseDataTypeViolations(
-    ValidationOptions options,
-    DataPackageDescriptor dataPackageDescriptor,
-    Connection connection)
-    throws SQLException {
-    List<DataTypeViolation> dataTypeViolations = new ArrayList<>();
-    // Data type validation
-    for (ResourceDescriptor resource : dataPackageDescriptor.resources()) {
-      dataTypeViolations.addAll(dataTypeValidator.validate(connection, resource, options.sampleSize()));
-    }
-    return dataTypeViolations;
-  }
+  // ── private helpers ───────────────────────────────────────────────────────
 
-  private List<ResourceAnalysisResult> analyseEachResource(ValidationOptions options, List<AnalysisFeature> analysisFeatures, DataPackageDescriptor dataPackageDescriptor, Connection connection) throws SQLException {
-    List<ResourceAnalysisResult> resourceAnalysisResults = new ArrayList<>();
-    for (ResourceDescriptor resource : dataPackageDescriptor.resources()) {
-      ResourceAnalysisResult resourceAnalysisResult = analyseResource(
-        options,
-        resource,
-        connection,
-        dataPackageDescriptor,
-        analysisFeatures);
-      resourceAnalysisResults.add(resourceAnalysisResult);
-    }
-    return resourceAnalysisResults;
-  }
-
-  private void applyDuckDbOptions(ValidationOptions options, Connection connection) throws SQLException {
-    if (options.duckDbConfig() != null) {
-      try (Statement st = connection.createStatement()) {
-        if (!options.duckDbConfig().dbMemory().isBlank()) {
-          st.execute("SET memory_limit = " + sq(options.duckDbConfig().dbMemory()));
-        }
-        if (options.duckDbConfig().dbThreads() > 0) {
-          st.execute("SET threads TO " + options.duckDbConfig().dbThreads());
-        }
-        if (!options.duckDbConfig().dbTempDir().isBlank()) {
-          st.execute("SET temp_directory = " + sq(options.duckDbConfig().dbTempDir()));
-        }
-        /*
-        if (!options.duckDbConfig().dbMaxTemp().isBlank()) {
-          st.execute("PRAGMA temp_directory_size = " + sq(options.duckDbConfig().dbMaxTemp()));
-        }
-         */
-
-        if (log.isDebugEnabled()) {
-          ResultSet rs = st.executeQuery("SELECT * FROM duckdb_settings()");
-          Map<String, String> duckdbSettings = new HashMap<>();
-          while (rs.next()) {
-            duckdbSettings.put(rs.getString("name"), rs.getString("value"));
-          }
-          String duckdbSettingsAsString = duckdbSettings.entrySet().stream()
-            .map(e -> String.format("'%s'='%s'", e.getKey(), e.getValue()))
-            .collect(Collectors.joining(", "));
-          log.debug("Setting duckdb_settings: [{}]", duckdbSettingsAsString);
-        }
+  private void applyConfig(Connection connection) throws SQLException {
+    try (Statement st = connection.createStatement()) {
+      if (!config.dbMemory().isBlank()) {
+        st.execute("SET memory_limit = " + sq(config.dbMemory()));
+      }
+      if (config.dbThreads() > 0) {
+        st.execute("SET threads TO " + config.dbThreads());
+      }
+      if (!config.dbTempDir().isBlank()) {
+        st.execute("SET temp_directory = " + sq(config.dbTempDir()));
+      }
+      if (log.isDebugEnabled()) {
+        ResultSet rs = st.executeQuery("SELECT * FROM duckdb_settings()");
+        Map<String, String> settings = new HashMap<>();
+        while (rs.next()) settings.put(rs.getString("name"), rs.getString("value"));
+        log.debug("DuckDB settings: [{}]", settings.entrySet().stream()
+          .map(e -> "'" + e.getKey() + "'='" + e.getValue() + "'")
+          .collect(Collectors.joining(", ")));
       }
     }
   }
 
-  private ResourceAnalysisResult analyseResource(ValidationOptions options,
-                                                 ResourceDescriptor resource,
-                                                 Connection connection,
-                                                 DataPackageDescriptor dataPackageDescriptor,
-                                                 List<AnalysisFeature> analysisFeatures) throws SQLException {
-    List<ForeignKeyViolation> keyViolations = new ArrayList<>();
-    List<DataTypeViolation> dataTypeViolations = new ArrayList<>();
-    List<ColumnStatistics> columnAnalyses = new ArrayList<>();
-    PrimaryKeyViolation primaryKeyViolation = null;
+  private List<ResourceAnalysisResult> analyseEachResource(
+    ValidationOptions options, List<AnalysisFeature> features,
+    DataPackageDescriptor descriptor, Connection connection) throws SQLException {
+    List<ResourceAnalysisResult> results = new ArrayList<>();
+    for (ResourceDescriptor resource : descriptor.resources()) {
+      results.add(analyseResource(options, features, resource, descriptor, connection));
+    }
+    return results;
+  }
+
+  private ResourceAnalysisResult analyseResource(
+    ValidationOptions options, List<AnalysisFeature> features,
+    ResourceDescriptor resource, DataPackageDescriptor descriptor,
+    Connection connection) throws SQLException {
+
+    List<ForeignKeyViolation> fkViolations = new ArrayList<>();
+    List<DataTypeViolation> typeViolations = new ArrayList<>();
+    List<ColumnStatistics> columnStats = new ArrayList<>();
+    PrimaryKeyViolation pkViolation = null;
     long rowCount = countRows(connection, resource);
 
-    if (analysisFeatures.contains(AnalysisFeature.FOREIGN_KEY_CONSTRAINT)) {
-      List<ForeignKeyViolation> foreignForeignKeyViolations = findForeignKeyViolations(options, resource, connection, dataPackageDescriptor);
-      keyViolations.addAll(foreignForeignKeyViolations);
+    if (features.contains(AnalysisFeature.FOREIGN_KEY_CONSTRAINT)) {
+      fkViolations.addAll(findForeignKeyViolations(options, resource, connection, descriptor));
     }
-
-    if (analysisFeatures.contains(AnalysisFeature.PRIMARY_KEY_UNIQUE)) {
-      primaryKeyViolation = findPrimaryKeyViolations(options, resource, connection, dataPackageDescriptor);
+    if (features.contains(AnalysisFeature.PRIMARY_KEY_UNIQUE)) {
+      pkViolation = findPrimaryKeyViolation(options, resource, connection);
     }
-
-    if (analysisFeatures.contains(AnalysisFeature.DATA_TYPE_CONSTRAINT)) {
-      dataTypeViolations = analyseDataTypeViolations(options, dataPackageDescriptor, connection);
+    if (features.contains(AnalysisFeature.DATA_TYPE_CONSTRAINT)) {
+      for (ResourceDescriptor r : descriptor.resources()) {
+        typeViolations.addAll(dataTypeValidator.validate(connection, r, options.sampleSize()));
+      }
     }
-
-    if (analysisFeatures.contains(AnalysisFeature.COUNT) || analysisFeatures.contains(AnalysisFeature.COUNT_DISTINCT)) {
-      for (var field : resource.fields()) {
-        ColumnStatistics columnAnalysis = analyseColumn(connection, field, resource);
-        columnAnalyses.add(columnAnalysis);
+    if (features.contains(AnalysisFeature.COUNT)
+      || features.contains(AnalysisFeature.COUNT_DISTINCT)) {
+      for (FieldDescriptor field : resource.fields()) {
+        columnStats.add(analyseColumn(connection, field, resource));
       }
     }
 
     return new ResourceAnalysisResult(
-      resource.name(),
-      keyViolations,
-      primaryKeyViolation,
-      dataTypeViolations,
-      columnAnalyses,
-      rowCount);
+      resource.name(), fkViolations, pkViolation, typeViolations, columnStats, rowCount);
   }
 
-  private PrimaryKeyViolation findPrimaryKeyViolations(ValidationOptions options, ResourceDescriptor resource, Connection connection, DataPackageDescriptor dataPackageDescriptor) throws SQLException {
+  private long countRows(Connection connection, ResourceDescriptor resource) throws SQLException {
+    try (PreparedStatement ps = connection.prepareStatement(
+      "SELECT COUNT(*) FROM " + q(resource.name()));
+         ResultSet rs = ps.executeQuery()) {
+      rs.next();
+      return rs.getLong(1);
+    }
+  }
+
+  private PrimaryKeyViolation findPrimaryKeyViolation(
+    ValidationOptions options, ResourceDescriptor resource, Connection connection)
+    throws SQLException {
     if (resource.primaryKey() == null) {
       return null;
     }
+
     String keyFields = resource.primaryKey().keys().stream()
-      .map(key -> q(key))
-      .collect(Collectors.joining(", "));
-
-    StringBuilder sb = new StringBuilder();
-    sb.append("SELECT COUNT(*), ").append(keyFields);
-    sb.append(" FROM ").append(q(resource.name()));
-    sb.append(" GROUP BY ").append(keyFields);
-    sb.append(" HAVING COUNT(*) > 1");
-
-    String violationSql = sb.toString();
-
-    sb = new StringBuilder();
-    sb.append("SELECT COUNT(*)");
-    sb.append(" FROM (").append(violationSql).append(")");
-
-    String countSql = sb.toString();
-    String sampleSql = violationSql + " LIMIT " + options.sampleSize();
-
-    log.debug("Primary key violation search query: " + violationSql);
+      .map(DuckDbRenderUtils::q).collect(Collectors.joining(", "));
+    String violationSql = "SELECT COUNT(*), " + keyFields
+      + " FROM " + q(resource.name())
+      + " GROUP BY " + keyFields + " HAVING COUNT(*) > 1";
+    String countSql = "SELECT COUNT(*) FROM (" + violationSql + ")";
 
     long count;
-    try (PreparedStatement statement = connection.prepareStatement(countSql);
-         ResultSet resultSet = statement.executeQuery()) {
-      resultSet.next();
-      count = resultSet.getLong(1);
+    try (PreparedStatement ps = connection.prepareStatement(countSql);
+         ResultSet rs = ps.executeQuery()) {
+      rs.next();
+      count = rs.getLong(1);
     }
 
     if (count == 0) {
       return null;
     }
-    List<Map<String, Object>> samples = fetchSampleRows(connection, sampleSql);
+    List<Map<String, Object>> samples =
+      fetchSampleRows(connection, violationSql + " LIMIT " + options.sampleSize());
+
     return new PrimaryKeyViolation(resource.name(), resource.primaryKey().keys(), count, samples);
   }
 
   private List<ForeignKeyViolation> findForeignKeyViolations(
-    ValidationOptions options,
-    ResourceDescriptor resource,
-    Connection connection,
-    DataPackageDescriptor dataPackageDescriptor) throws SQLException {
-    List<ForeignKeyViolation> foreignKeyViolations = new ArrayList<>();
+    ValidationOptions options, ResourceDescriptor resource,
+    Connection connection, DataPackageDescriptor descriptor) throws SQLException {
+    List<ForeignKeyViolation> violations = new ArrayList<>();
+
     for (ForeignKeyDescriptor key : resource.foreignKeys()) {
-      log.info("Checking referential integrity for {}[{}]->{}[{}]",
-        resource.name(),
+      log.info("Checking FK {}[{}] -> {}[{}]", resource.name(),
         String.join(",", key.fields()),
-        key.reference().resource(),
-        String.join(",", key.reference().fields())
-      );
-      ForeignKeyViolation violation =
-        validateForeignKey(connection, dataPackageDescriptor, resource, key, options.sampleSize());
-      if (violation.violationCount() > 0) {
-        foreignKeyViolations.add(violation);
-      }
+        key.reference().resource(), String.join(",", key.reference().fields()));
+      ForeignKeyViolation v =
+        validateForeignKey(connection, descriptor, resource, key, options.sampleSize());
+      if (v.violationCount() > 0) violations.add(v);
     }
-    return foreignKeyViolations;
+    return violations;
   }
 
-  private long countRows(Connection connection, ResourceDescriptor resource) throws SQLException {
-    String sql = "SELECT COUNT(*) FROM " + q(resource.name());
-    try (PreparedStatement statement = connection.prepareStatement(sql);
-         ResultSet resultSet = statement.executeQuery()) {
-      resultSet.next();
-      return resultSet.getLong(1);
+  private ForeignKeyViolation validateForeignKey(
+    Connection connection, DataPackageDescriptor descriptor,
+    ResourceDescriptor resource, ForeignKeyDescriptor key, int sampleSize)
+    throws SQLException {
+    ReferenceDescriptor ref = key.reference();
+    String parentName = ref.resource().isBlank() ? resource.name() : ref.resource();
+    ResourceDescriptor parent = descriptor.resources().stream()
+      .filter(r -> r.name().equals(parentName)).findFirst().orElse(null);
+    if (parent == null) {
+      return new ForeignKeyViolation(
+        resource.name(), key.fields(), parentName, ref.fields(), 0L, List.of());
     }
+
+    String countSql =
+      buildViolationCountSql(resource.name(), key.fields(), parent.name(), ref.fields());
+    long count;
+    try (PreparedStatement ps = connection.prepareStatement(countSql);
+         ResultSet rs = ps.executeQuery()) {
+      rs.next();
+      count = rs.getLong(1);
+    }
+
+    List<Map<String, Object>> samples = count == 0 ? List.of()
+      : fetchSampleRows(connection,
+      buildSampleSql(resource.name(), key.fields(), parent.name(), ref.fields(), sampleSize));
+    return new ForeignKeyViolation(
+      resource.name(), key.fields(), parent.name(), ref.fields(), count, samples);
   }
 
   private ColumnStatistics analyseColumn(
-    Connection connection,
-    FieldDescriptor field,
-    ResourceDescriptor resource)
+    Connection connection, FieldDescriptor field, ResourceDescriptor resource)
     throws SQLException {
-    String sql = createColumnSql(field, resource);
-
-    try (PreparedStatement statement = connection.prepareStatement(sql);
-         ResultSet resultSet = statement.executeQuery()) {
-      resultSet.next();
-      ColumnStatistics columnAnalysis = new ColumnStatistics(
-        field.name(),
-        resultSet.getLong(1),
-        resultSet.getLong(2));
-      return columnAnalysis;
+    String where = buildMissingValueWhere(field);
+    String sql = "SELECT COUNT(" + q(field.name()) + "), COUNT(DISTINCT " + q(field.name()) + ")"
+      + " FROM " + q(resource.name()) + where;
+    try (PreparedStatement ps = connection.prepareStatement(sql);
+         ResultSet rs = ps.executeQuery()) {
+      rs.next();
+      return new ColumnStatistics(field.name(), rs.getLong(1), rs.getLong(2));
     }
   }
 
-  private String createColumnSql(FieldDescriptor field, ResourceDescriptor resource) {
-    StringBuilder sb = new StringBuilder();
-    sb.append("select");
-    sb.append(" COUNT(").append(q(field.name())).append("),");
-    sb.append(" COUNT(DISTINCT ").append(q(field.name())).append(")");
-    sb.append(" FROM ").append(q(resource.name()));
-
-    String missingValueSql = createMissingValueWhereSql(field);
-    if (!missingValueSql.isBlank()) {
-      sb.append(" WHERE ").append(missingValueSql);
-    }
-
-    return sb.toString();
-  }
-
-  private String createMissingValueWhereSql(FieldDescriptor fieldDescriptor) {
-    List<String> castableMissingValues = fieldDescriptor.missingValues().stream()
-      .filter(mv -> !mv.rawValue().isEmpty()) // skip "" — always valid as null, no SQL needed
-      .filter(mv -> castable(mv.rawValue(), fieldDescriptor.type()))
+  private String buildMissingValueWhere(FieldDescriptor field) {
+    List<String> castable = field.missingValues().stream()
+      .filter(mv -> !mv.rawValue().isEmpty())
+      .filter(mv -> castable(mv.rawValue(), field.type()))
       .map(mv -> sq(mv.rawValue()))
       .toList();
-
-    if (castableMissingValues.isEmpty()) {
-      return "1 = 1";
-    }
-
-    return " " + q(fieldDescriptor.name()) + " not in ("
-      + String.join(", ", castableMissingValues) + ")";
+    if (castable.isEmpty()) return "";
+    return " WHERE " + q(field.name()) + " NOT IN (" + String.join(", ", castable) + ")";
   }
 
-  private boolean castable(String rawValue, String frictionlessType) {
-    if (rawValue == null || rawValue.isEmpty()) return true;
-    return switch (frictionlessType) {
+  private boolean castable(String value, String type) {
+    if (value == null || value.isEmpty()) return true;
+    return switch (type) {
       case "integer", "year" -> {
         try {
-          Long.parseLong(rawValue);
+          Long.parseLong(value);
           yield true;
         } catch (NumberFormatException e) {
           yield false;
@@ -306,16 +287,16 @@ public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
       }
       case "number" -> {
         try {
-          Double.parseDouble(rawValue);
+          Double.parseDouble(value);
           yield true;
         } catch (NumberFormatException e) {
           yield false;
         }
       }
-      case "boolean" -> rawValue.equalsIgnoreCase("true") || rawValue.equalsIgnoreCase("false");
+      case "boolean" -> value.equalsIgnoreCase("true") || value.equalsIgnoreCase("false");
       case "date" -> {
         try {
-          LocalDate.parse(rawValue);
+          LocalDate.parse(value);
           yield true;
         } catch (DateTimeParseException e) {
           yield false;
@@ -323,7 +304,7 @@ public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
       }
       case "datetime" -> {
         try {
-          LocalDateTime.parse(rawValue);
+          LocalDateTime.parse(value);
           yield true;
         } catch (DateTimeParseException e) {
           yield false;
@@ -331,148 +312,73 @@ public class DuckDbDataPackageAnalyser implements DataPackageAnalyser {
       }
       case "time" -> {
         try {
-          LocalTime.parse(rawValue);
+          LocalTime.parse(value);
           yield true;
         } catch (DateTimeParseException e) {
           yield false;
         }
       }
       case "object", "array" -> {
-        // Rough JSON check — adjust if you have a JSON lib available
-        String v = rawValue.trim();
-        yield (frictionlessType.equals("object") && v.startsWith("{") && v.endsWith("}"))
-          || (frictionlessType.equals("array") && v.startsWith("[") && v.endsWith("]"));
+        String v = value.trim();
+        yield (type.equals("object") && v.startsWith("{") && v.endsWith("}")) || (type.equals("array") && v.startsWith("[") && v.endsWith("]"));
       }
-      default -> true; // string and unknown types accept anything
+      default -> true;
     };
   }
 
-  private ForeignKeyViolation validateForeignKey(
-    Connection connection,
-    DataPackageDescriptor dataPackage,
-    ResourceDescriptor resource,
-    ForeignKeyDescriptor key,
-    int sampleSize)
+  private static List<Map<String, Object>> fetchSampleRows(Connection connection, String sql)
     throws SQLException {
-
-    ReferenceDescriptor reference = key.reference();
-    String parentName = reference.resource().isBlank() ? resource.name() : reference.resource();
-    ResourceDescriptor parentResource = dataPackage.resources().stream()
-      .filter(resourceDescriptor ->  resourceDescriptor.name().equals(parentName))
-      .findFirst()
-      .orElse(null);
-    if (parentResource == null) {
-      return new ForeignKeyViolation(resource.name(), key.fields(), parentName, reference.fields(), 0L, List.of());
-    }
-
-    String countSql = buildViolationCountSql(resource.name(), key.fields(), parentResource.name(), reference.fields());
-
-    long count;
-    try (PreparedStatement statement = connection.prepareStatement(countSql);
-         ResultSet resultSet = statement.executeQuery()) {
-      resultSet.next();
-      count = resultSet.getLong(1);
-    }
-
-    List<Map<String, Object>> samples =
-      count == 0
-        ? List.of()
-        : fetchForeignKeySampleRows(connection, resource.name(), key.fields(), parentResource.name(), reference.fields(), sampleSize);
-
-    return new ForeignKeyViolation(
-      resource.name(), key.fields(), parentResource.name(), reference.fields(), count, samples);
-  }
-
-  private List<Map<String, Object>> fetchForeignKeySampleRows(
-    Connection connection,
-    String childResource,
-    List<String> childFields,
-    String parentResource,
-    List<String> parentFields,
-    int sampleSize)
-    throws SQLException {
-
-    String sql = buildSampleSql(childResource, childFields, parentResource, parentFields, sampleSize);
-    List<Map<String, Object>> sampleRows = fetchSampleRows(connection, sql);
-    return List.copyOf(sampleRows);
-  }
-
-  private static List<Map<String, Object>> fetchSampleRows(Connection connection, String sql) throws SQLException {
-    List<Map<String, Object>> sampleRows = new ArrayList<>();
-    try (PreparedStatement statement = connection.prepareStatement(sql);
-         ResultSet resultSet = statement.executeQuery()) {
-      ResultSetMetaData metaData = resultSet.getMetaData();
-      while (resultSet.next()) {
+    List<Map<String, Object>> rows = new ArrayList<>();
+    try (PreparedStatement ps = connection.prepareStatement(sql);
+         ResultSet rs = ps.executeQuery()) {
+      ResultSetMetaData meta = rs.getMetaData();
+      while (rs.next()) {
         Map<String, Object> row = new HashMap<>();
-        for (int i = 1; i <= metaData.getColumnCount(); i++) {
-          row.put(metaData.getColumnName(i), resultSet.getObject(i));
+        for (int i = 1; i <= meta.getColumnCount(); i++) {
+          row.put(meta.getColumnName(i), rs.getObject(i));
         }
-        sampleRows.add(row);
+        rows.add(row);
       }
     }
-    return sampleRows;
+    return rows;
   }
 
   private static String buildViolationCountSql(
-    String childResource,
-    List<String> childFields,
-    String parentResource,
-    List<String> parentFields) {
-
-    return "SELECT COUNT(*) FROM "
-      + q(childResource)
-      + " c WHERE "
-      + childNotNullPredicate(childFields)
-      + " AND NOT EXISTS (SELECT 1 FROM "
-      + q(parentResource)
-      + " p WHERE "
-      + equalityJoinPredicate(childFields, parentFields)
-      + ")";
+    String child, List<String> cf, String parent, List<String> pf) {
+    return
+      "SELECT COUNT(*)" +
+        " FROM " + q(child) + " c" +
+        " WHERE " + nullPredicate(cf)
+      + " AND NOT EXISTS (" +
+        "    SELECT 1" +
+        "    FROM " + q(parent) + " p" +
+        "    WHERE " + joinPredicate(cf, pf) + ")";
   }
 
   private static String buildSampleSql(
-    String childResource,
-    List<String> childFields,
-    String parentResource,
-    List<String> parentFields,
-    int sampleSize) {
-
-    return "SELECT "
-      + selectChildColumns(childFields)
-      + " FROM "
-      + q(childResource)
-      + " c WHERE "
-      + childNotNullPredicate(childFields)
-      + " AND NOT EXISTS (SELECT 1 FROM "
-      + q(parentResource)
-      + " p WHERE "
-      + equalityJoinPredicate(childFields, parentFields)
-      + ") LIMIT "
-      + Math.max(sampleSize, 1);
+    String child, List<String> cf, String parent, List<String> pf, int limit) {
+    return "SELECT " + selectCols(cf) + " FROM " + q(child) + " c WHERE " + nullPredicate(cf)
+      + " AND NOT EXISTS (SELECT 1 FROM " + q(parent) + " p WHERE " + joinPredicate(cf, pf)
+      + ") LIMIT " + Math.max(limit, 1);
   }
 
-  private static String childNotNullPredicate(List<String> childFields) {
-    StringJoiner joiner = new StringJoiner(" AND ");
-    for (String field : childFields) {
-      joiner.add("c." + q(field) + " IS NOT NULL");
+  private static String nullPredicate(List<String> fields) {
+    StringJoiner j = new StringJoiner(" AND ");
+    fields.forEach(f -> j.add("c." + q(f) + " IS NOT NULL"));
+    return j.toString();
+  }
+
+  private static String joinPredicate(List<String> cf, List<String> pf) {
+    StringJoiner j = new StringJoiner(" AND ");
+    for (int i = 0; i < cf.size(); i++) {
+      j.add("c." + q(cf.get(i)) + " = p." + q(pf.get(i)));
     }
-    return joiner.toString();
+    return j.toString();
   }
 
-  private static String equalityJoinPredicate(List<String> childFields, List<String> parentFields) {
-    StringJoiner joiner = new StringJoiner(" AND ");
-    for (int i = 0; i < childFields.size(); i++) {
-      joiner.add("c." + q(childFields.get(i)) + " = p." + q(parentFields.get(i)));
-    }
-    return joiner.toString();
+  private static String selectCols(List<String> fields) {
+    StringJoiner j = new StringJoiner(", ");
+    fields.forEach(f -> j.add("c." + q(f) + " AS " + q(f)));
+    return j.toString();
   }
-
-  private static String selectChildColumns(List<String> childFields) {
-    StringJoiner joiner = new StringJoiner(", ");
-    for (String field : childFields) {
-      joiner.add("c." + q(field) + " AS " + q(field));
-    }
-    return joiner.toString();
-  }
-
 }
