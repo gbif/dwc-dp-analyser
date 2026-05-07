@@ -185,7 +185,7 @@ public class EmlValidator {
       return EmlValidationResult.absent();
     }
 
-    log.info("Validating EML: {}", emlPath);
+    log.debug("Validating EML: {}", emlPath);
     List<ValidationIssue> issues = new ArrayList<>();
 
     Document doc = parseXml(emlPath, issues);
