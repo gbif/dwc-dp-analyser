@@ -2,11 +2,13 @@ package org.gbif.dp.analysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.SQLException;
 import java.util.List;
 
 import org.gbif.dp.analysis.api.AnalysisFeature;
@@ -28,6 +30,7 @@ import org.gbif.dp.validator.frictionless.DescriptorValidator;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Integration tests for {@link DuckDbDataPackageAnalyser}.
@@ -48,6 +51,7 @@ class DuckDbDataPackageAnalyserTest {
       @Override public EmlValidationResult validate(Path p) { return EmlValidationResult.absent(); }
     };
 
+  @TempDir Path tempDir;
   DataAnalyser analyser;
   DataPackageAnalysisOrchestrator orchestrator;
 
@@ -63,7 +67,6 @@ class DuckDbDataPackageAnalyserTest {
 
   @Test
   void shouldValidateForeignKeysFromDescriptor() throws Exception {
-    Path tempDir = Files.createTempDirectory("dp-test-");
     Files.writeString(tempDir.resolve("parent.csv"), "id,name\n1,earth\n2,mars\n");
     Files.writeString(tempDir.resolve("child.csv"),  "id,parent_id\n10,1\n11,999\n12,\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
@@ -94,7 +97,6 @@ class DuckDbDataPackageAnalyserTest {
 
   @Test
   void shouldDetectDataTypeViolations() throws Exception {
-    Path tempDir = Files.createTempDirectory("dp-dtype-test-");
     Files.writeString(tempDir.resolve("data.csv"),
       "id,age,active,birth_date\n1,25,true,2000-01-01\n2,notanumber,false,2001-06-15\n3,30,maybe,not-a-date\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
@@ -173,8 +175,37 @@ class DuckDbDataPackageAnalyserTest {
   }
 
   @Test
-  void shouldFailOnDuplicatePrimaryKeys() {
-    // TODO
+  void shouldFailOnDuplicatePrimaryKeys() throws IOException, SQLException {
+    Files.writeString(tempDir.resolve("data.csv"), """
+      id,score
+      1,2
+      2,3
+      2,5
+      """);
+    Files.writeString(tempDir.resolve("datapackage.json"), """
+        {
+          "name": "duplicate-primary-key",
+          "resources": [{
+            "name": "data",
+            "path": "data.csv",
+            "schema": { "fields": [
+              { "name": "id",    "type": "integer", "missingValues": ["-1"] },
+              { "name": "score", "type": "number",  "missingValues": ["-1"] }
+            ]},
+            "primaryKey": "id"
+          }]
+        }
+    """);
+
+    List<ResourceAnalysisResult> results = analyser.analyse(
+      tempDir.resolve("datapackage.json"), ValidationOptions.defaults(),
+      List.of(AnalysisFeature.PRIMARY_KEY_UNIQUE));
+
+    assertFalse(results.isEmpty());
+    assertEquals(results.size(), 1);
+    assertNotNull(results.get(0).primaryKeyViolation());
+    assertEquals(results.get(0).primaryKeyViolation().resource(), "data");
+    assertEquals(results.get(0).primaryKeyViolation().violationCount(), 1);
   }
 
   @Test
@@ -186,7 +217,6 @@ class DuckDbDataPackageAnalyserTest {
 
   @Test
   void shouldNotCountFieldLevelMissingValuesAsPopulated() throws Exception {
-    Path tempDir = Files.createTempDirectory("dp-missing-field-");
     Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,3.14\n-1,2.71\n3,-1\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         {
@@ -215,7 +245,6 @@ class DuckDbDataPackageAnalyserTest {
 
   @Test
   void shouldFallBackToSchemaMissingValuesWhenFieldDoesNotDefineOwn() throws Exception {
-    Path tempDir = Files.createTempDirectory("dp-missing-schema-");
     Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,3.14\n2,-1\n3,2.71\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         {
@@ -244,7 +273,6 @@ class DuckDbDataPackageAnalyserTest {
 
   @Test
   void shouldPreferFieldMissingValuesOverSchemaMissingValues() throws Exception {
-    Path tempDir = Files.createTempDirectory("dp-missing-precedence-");
     Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,3.14\n2,-1\n3,-999\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         {
@@ -276,7 +304,6 @@ class DuckDbDataPackageAnalyserTest {
   @Test
   void shouldUseDefaultMissingValueOfEmptyStringWhenNeitherFieldNorSchemaDefinesMissingValues()
     throws Exception {
-    Path tempDir = Files.createTempDirectory("dp-missing-default-");
     Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,3.14\n2,-1\n3,\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         {
@@ -301,7 +328,6 @@ class DuckDbDataPackageAnalyserTest {
 
   @Test
   void shouldReadTsvViaDialect() throws Exception {
-    Path tempDir = Files.createTempDirectory("dp-tsv-dialect-");
     Files.writeString(tempDir.resolve("data.tsv"), "id\tname\n1\tearth\n2\tmars\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         { "name": "tsv-test", "resources": [{
@@ -316,7 +342,6 @@ class DuckDbDataPackageAnalyserTest {
 
   @Test
   void shouldReadTsvViaExtensionFallback() throws Exception {
-    Path tempDir = Files.createTempDirectory("dp-tsv-ext-");
     Files.writeString(tempDir.resolve("data.tsv"), "id\tname\n1\tearth\n2\tmars\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         { "name": "tsv-ext-test", "resources": [{
@@ -330,7 +355,6 @@ class DuckDbDataPackageAnalyserTest {
 
   @Test
   void shouldReadSemicolonDelimitedFile() throws Exception {
-    Path tempDir = Files.createTempDirectory("dp-semicolon-");
     Files.writeString(tempDir.resolve("data.csv"), "id;name\n1;earth\n2;mars\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         { "name": "semicolon-test", "resources": [{
@@ -345,7 +369,6 @@ class DuckDbDataPackageAnalyserTest {
 
   @Test
   void shouldHandleQuotedFieldsContainingDelimiter() throws Exception {
-    Path tempDir = Files.createTempDirectory("dp-quoted-");
     Files.writeString(tempDir.resolve("data.csv"), "id,name\n1,\"earth, the planet\"\n2,mars\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         { "name": "quoted-test", "resources": [{
@@ -358,9 +381,7 @@ class DuckDbDataPackageAnalyserTest {
       ValidationOptions.defaults(), List.of(AnalysisFeature.COUNT)).get(0).totalRows());
   }
 
-  // ── helpers ───────────────────────────────────────────────────────────────
-
-  private static ColumnStatistics getColumnStats(
+  private ColumnStatistics getColumnStats(
     List<ResourceAnalysisResult> results, String resource, String column) {
     return results.stream()
       .filter(r -> r.name().equalsIgnoreCase(resource)).findFirst()
@@ -370,8 +391,7 @@ class DuckDbDataPackageAnalyserTest {
       .orElseThrow(() -> new AssertionError("Column not found: " + column));
   }
 
-  private static Path setupSmallValidDataset() throws IOException {
-    Path tempDir = Files.createTempDirectory("dp-dtype-pass-");
+  private Path setupSmallValidDataset() throws IOException {
     Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,3.14\n2,2.71\n3,2.71\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         {

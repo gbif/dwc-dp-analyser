@@ -100,8 +100,6 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
     }
   }
 
-  // ── private helpers ───────────────────────────────────────────────────────
-
   private void applyConfig(Connection connection) throws SQLException {
     try (Statement st = connection.createStatement()) {
       if (!config.dbMemory().isBlank()) {

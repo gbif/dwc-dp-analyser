@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -16,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ValidationCliTest {
 
+    @TempDir Path tempDir;
     private PrintStream originalOut;
     private ByteArrayOutputStream capturedOut;
 
@@ -43,7 +45,6 @@ class ValidationCliTest {
 
     @Test
     void shouldExitTwoForDataTypeViolations() throws Exception {
-        Path tempDir = Files.createTempDirectory("dp-cli-invalid-");
         Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,notanumber\n");
         Files.writeString(tempDir.resolve("datapackage.json"), """
             {
@@ -90,7 +91,6 @@ class ValidationCliTest {
 
     @Test
     void shouldIncludeViolationsInJsonOutput() throws Exception {
-        Path tempDir = Files.createTempDirectory("dp-cli-json-violations-");
         Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,asd\n");
         Files.writeString(tempDir.resolve("datapackage.json"), """
             {
@@ -114,8 +114,7 @@ class ValidationCliTest {
         assertFalse(json.get("result").path("dataTypeViolations").isNull());
     }
 
-    private static Path setupSmallValidDataset() throws IOException {
-        Path tempDir = Files.createTempDirectory("dp-cli-valid-");
+    private Path setupSmallValidDataset() throws IOException {
         Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,3.14\n2,2.71\n");
         Files.writeString(tempDir.resolve("datapackage.json"), """
             {

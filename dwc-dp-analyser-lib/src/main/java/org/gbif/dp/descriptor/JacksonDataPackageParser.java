@@ -75,7 +75,7 @@ public class JacksonDataPackageParser implements DataPackageParser {
             List.of(MissingValueDescriptor.NULL));
     List<FieldDescriptor> fields = parseFields(schemaNode.path("fields"), defaultMissingValues);
     List<ForeignKeyDescriptor> foreignKeys = parseForeignKeys(schemaNode.path("foreignKeys"));
-    PrimaryKeyDescriptor primaryKey = parsePrimaryKey(schemaNode.path("primaryKey"));
+    PrimaryKeyDescriptor primaryKey = parsePrimaryKey(resourceNode.path("primaryKey"));
     DialectDescriptor dialect = parseDialect(resourceNode.path("dialect"), paths.stream().findFirst().orElse(null));
     ResourceDescriptor descriptor = new ResourceDescriptor(name, paths, fields, foreignKeys, primaryKey, dialect);
     return descriptor;
