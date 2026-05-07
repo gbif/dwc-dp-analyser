@@ -90,12 +90,12 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
       applyConfig(connection);
 
       for (ResourceDescriptor resource : descriptor.resources()) {
-        log.info("Creating temp table for {} -> {}", resource.name(), resource.paths());
+        log.debug("Creating temp table for {} -> {}", resource.name(), resource.paths());
         resourceLoader.createResourceTempTable(
           connection, resource.name(), resource.paths(), resource.dialect());
       }
 
-      log.info("Running data analysis for: [{}]", descriptor.name());
+      log.debug("Running data analysis for: [{}]", descriptor.name());
       return analyseEachResource(options, features, descriptor, connection);
     }
   }
@@ -210,7 +210,7 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
     List<ForeignKeyViolation> violations = new ArrayList<>();
 
     for (ForeignKeyDescriptor key : resource.foreignKeys()) {
-      log.info("Checking FK {}[{}] -> {}[{}]", resource.name(),
+      log.debug("Checking FK {}[{}] -> {}[{}]", resource.name(),
         String.join(",", key.fields()),
         key.reference().resource(), String.join(",", key.reference().fields()));
       ForeignKeyViolation v =

@@ -66,7 +66,7 @@ public class DefaultDataPackageAnalysisOrchestrator implements DataPackageAnalys
     // ── 1. Descriptor validation ──────────────────────────────────────────
     DescriptorValidationResult descriptorResult = DescriptorValidationResult.ok();
     if (features.contains(AnalysisFeature.DESCRIPTOR_VALIDATION)) {
-      log.info("Validating descriptor: {}", descriptorPath);
+      log.debug("Validating descriptor: {}", descriptorPath);
       descriptorResult = descriptorValidator.validate(descriptorPath);
 
       if (!descriptorResult.canProceedToDataAnalysis()) {
@@ -81,7 +81,7 @@ public class DefaultDataPackageAnalysisOrchestrator implements DataPackageAnalys
     EmlValidationResult emlResult = runEmlValidation(descriptorPath, features);
 
     // ── 3. Data analysis ──────────────────────────────────────────────────
-    log.info("Starting data analysis: {}", descriptorPath);
+    log.debug("Starting data analysis: {}", descriptorPath);
     var resourceResults = dataAnalyser.analyse(descriptorPath, options, features);
 
     return new DatapackageAnalysisResult(descriptorResult, emlResult, resourceResults);
@@ -89,7 +89,6 @@ public class DefaultDataPackageAnalysisOrchestrator implements DataPackageAnalys
 
   private EmlValidationResult runEmlValidation(Path descriptorPath, List<AnalysisFeature> features) {
     if (features.contains(AnalysisFeature.EML_VALIDATION)) {
-      log.info("Validating EML alongside: {}", descriptorPath);
       return emlValidator.validate(descriptorPath);
     }
     return EmlValidationResult.absent();
