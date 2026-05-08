@@ -36,6 +36,10 @@ public class JacksonDataPackageParser implements DataPackageParser {
       return new DataPackageDescriptor(packageName, List.of());
     }
 
+    DialectDescriptor defaultDialecct = null;
+    if (root.has("dialect")) {
+      defaultDialecct = parseDialect(root.path("dialect"), null, null);
+    }
     for (JsonNode resourceNode : resourceNodes) {
       String name = resourceNode.path("name").asText("");
       if (name.isBlank()) {
@@ -60,14 +64,14 @@ public class JacksonDataPackageParser implements DataPackageParser {
         continue;
       }
 
-      ResourceDescriptor descriptor = parseResourceDescriptor(resourceNode, name, paths);
+      ResourceDescriptor descriptor = parseResourceDescriptor(resourceNode, name, paths, defaultDialecct);
       resources.add(descriptor);
     }
 
     return new DataPackageDescriptor(packageName, List.copyOf(resources));
   }
 
-  private ResourceDescriptor parseResourceDescriptor(JsonNode resourceNode, String name, List<Path> paths) {
+  private ResourceDescriptor parseResourceDescriptor(JsonNode resourceNode, String name, List<Path> paths, DialectDescriptor defaultDialect) {
     JsonNode schemaNode = resourceNode.path("schema");
     List<MissingValueDescriptor> defaultMissingValues = parseMissingValues(
             schemaNode.path("missingValues"),
@@ -76,13 +80,16 @@ public class JacksonDataPackageParser implements DataPackageParser {
     List<FieldDescriptor> fields = parseFields(schemaNode.path("fields"), defaultMissingValues);
     List<ForeignKeyDescriptor> foreignKeys = parseForeignKeys(schemaNode.path("foreignKeys"));
     PrimaryKeyDescriptor primaryKey = parsePrimaryKey(resourceNode.path("primaryKey"));
-    DialectDescriptor dialect = parseDialect(resourceNode.path("dialect"), paths.stream().findFirst().orElse(null));
+    DialectDescriptor dialect = parseDialect(resourceNode.path("dialect"), paths.stream().findFirst().orElse(null), defaultDialect);
     ResourceDescriptor descriptor = new ResourceDescriptor(name, paths, fields, foreignKeys, primaryKey, dialect);
     return descriptor;
   }
 
-  private DialectDescriptor parseDialect(JsonNode node, Path path) {
+  private DialectDescriptor parseDialect(JsonNode node, Path path, DialectDescriptor defaultDialect) {
     if (node == null || node.isNull() || node.isMissingNode()) {
+      if (defaultDialect != null) {
+        return defaultDialect;
+      }
       if (path != null && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".tsv")) {
         return DialectDescriptor.builder().delimiter("\t").build();
       }
