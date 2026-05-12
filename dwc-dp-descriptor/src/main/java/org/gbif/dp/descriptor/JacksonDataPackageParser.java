@@ -85,15 +85,26 @@ public class JacksonDataPackageParser implements DataPackageParser {
     return descriptor;
   }
 
+  private String getExtension(Path path) {
+    String fileName = path.getFileName().toString();
+    return fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
+  }
+
   private DialectDescriptor parseDialect(JsonNode node, Path path, DialectDescriptor defaultDialect) {
     if (node == null || node.isNull() || node.isMissingNode()) {
       if (defaultDialect != null) {
         return defaultDialect;
       }
-      if (path != null && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".tsv")) {
-        return DialectDescriptor.builder().delimiter("\t").build();
+      if (path == null) {
+        return null;
       }
-      return DialectDescriptor.defaults();
+      return switch (getExtension(path)) {
+        case "tsv" -> DialectDescriptor.builder().delimiter("\t").build();
+        case "csv" -> DialectDescriptor.builder().delimiter(",").build();
+        case "parquet", "pq" -> null;
+        default -> DialectDescriptor.defaults();
+      };
+
     }
 
     return DialectDescriptor.builder()
