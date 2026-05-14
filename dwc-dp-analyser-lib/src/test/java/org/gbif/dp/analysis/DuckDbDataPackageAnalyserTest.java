@@ -202,10 +202,10 @@ class DuckDbDataPackageAnalyserTest {
       List.of(AnalysisFeature.PRIMARY_KEY_UNIQUE));
 
     assertFalse(results.isEmpty());
-    assertEquals(results.size(), 1);
+    assertEquals(1, results.size());
     assertNotNull(results.get(0).primaryKeyViolation());
-    assertEquals(results.get(0).primaryKeyViolation().resource(), "data");
-    assertEquals(results.get(0).primaryKeyViolation().violationCount(), 1);
+    assertEquals("data", results.get(0).primaryKeyViolation().resource());
+    assertEquals(1, results.get(0).primaryKeyViolation().violationCount());
   }
 
   @Test

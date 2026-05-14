@@ -16,7 +16,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.StreamSupport;
 
 /**
  * Layer 2: cross-validates each DwC-DP named resource in a datapackage.json against
@@ -264,7 +263,7 @@ public class DwcDpTableSchemaValidator {
       JsonNode fieldsNode = canonicalFk.path("fields");
       String fkField = fieldsNode.isTextual()
         ? fieldsNode.asText().trim()
-        : (fieldsNode.isArray() && fieldsNode.size() > 0
+        : (fieldsNode.isArray() && !fieldsNode.isEmpty()
            ? fieldsNode.get(0).asText().trim() : "");
 
       if (fkField.isBlank()) continue;

@@ -143,7 +143,7 @@ class DwcDpProfileValidatorTest {
   }
 
   @Test
-  void shouldReportViolationWhenFieldMissingRequiredDctermsIsVersionOf() throws Exception {
+  void shouldReportViolationWhenFieldMissingRequiredDcTermsIsVersionOf() throws Exception {
     Files.writeString(tempDir.resolve("event.csv"), "eventID\n1\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         {

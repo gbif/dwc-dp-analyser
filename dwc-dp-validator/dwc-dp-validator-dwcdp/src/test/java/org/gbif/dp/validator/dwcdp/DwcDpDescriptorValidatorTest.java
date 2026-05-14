@@ -2,7 +2,6 @@ package org.gbif.dp.validator.dwcdp;
 
 import org.gbif.dp.validator.api.DescriptorValidationResult;
 import org.gbif.dp.validator.api.DescriptorViolationType;
-import org.gbif.dp.validator.api.ValidationIssue;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

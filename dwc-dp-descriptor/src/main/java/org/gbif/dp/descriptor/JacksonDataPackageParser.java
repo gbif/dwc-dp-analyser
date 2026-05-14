@@ -5,10 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.function.Predicate;
 import java.util.stream.StreamSupport;
 
@@ -36,9 +34,9 @@ public class JacksonDataPackageParser implements DataPackageParser {
       return new DataPackageDescriptor(packageName, List.of());
     }
 
-    DialectDescriptor defaultDialecct = null;
+    DialectDescriptor defaultDialect = null;
     if (root.has("dialect")) {
-      defaultDialecct = parseDialect(root.path("dialect"), null, null);
+      defaultDialect = parseDialect(root.path("dialect"), null, null);
     }
     for (JsonNode resourceNode : resourceNodes) {
       String name = resourceNode.path("name").asText("");
@@ -64,7 +62,7 @@ public class JacksonDataPackageParser implements DataPackageParser {
         continue;
       }
 
-      ResourceDescriptor descriptor = parseResourceDescriptor(resourceNode, name, paths, defaultDialecct);
+      ResourceDescriptor descriptor = parseResourceDescriptor(resourceNode, name, paths, defaultDialect);
       resources.add(descriptor);
     }
 
@@ -81,8 +79,7 @@ public class JacksonDataPackageParser implements DataPackageParser {
     List<ForeignKeyDescriptor> foreignKeys = parseForeignKeys(schemaNode.path("foreignKeys"));
     PrimaryKeyDescriptor primaryKey = parsePrimaryKey(resourceNode.path("primaryKey"));
     DialectDescriptor dialect = parseDialect(resourceNode.path("dialect"), paths.stream().findFirst().orElse(null), defaultDialect);
-    ResourceDescriptor descriptor = new ResourceDescriptor(name, paths, fields, foreignKeys, primaryKey, dialect);
-    return descriptor;
+    return new ResourceDescriptor(name, paths, fields, foreignKeys, primaryKey, dialect);
   }
 
   private String getExtension(Path path) {

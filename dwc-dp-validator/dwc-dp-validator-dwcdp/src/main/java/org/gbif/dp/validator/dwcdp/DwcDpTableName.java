@@ -6,7 +6,7 @@ import java.util.stream.Collectors;
 
 /**
  * Reserved DwC-DP table names as defined in the DwC-DP profile:
- * https://raw.githubusercontent.com/gbif/dwc-dp/0.1/dwc-dp/dwc-dp-profile.json
+ * <a href="https://raw.githubusercontent.com/gbif/dwc-dp/0.1/dwc-dp/dwc-dp-profile.json">dwc-dp-profile.json</a>
  *
  * <p>Resources whose {@code name} is in this set are subject to the stricter DwC-DP
  * field-level constraints. Resources with other names are treated as supplementary.

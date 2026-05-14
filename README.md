@@ -44,44 +44,44 @@ All violation results include sample rows/values and structured JSON detail for 
 
 ## Module structure
 
-| Module | Responsibility                                                       |
-|---|----------------------------------------------------------------------|
-| `dwc-dp-analyser-api` | Result types, feature flags, analysis interfaces                     |
-| `dwc-dp-analyser-lib` | Orchestration & Layer 4 - DuckDB-backed data analysis implementation |
-| `dwc-dp-validator-api` | `ValidationIssue`, `DescriptorViolationType`, severity model         |
+| Module                          | Responsibility                                                       |
+|---------------------------------|----------------------------------------------------------------------|
+| `dwc-dp-analyser-api`           | Result types, feature flags, analysis interfaces                     |
+| `dwc-dp-analyser-lib`           | Orchestration & Layer 4 - DuckDB-backed data analysis implementation |
+| `dwc-dp-validator-api`          | `ValidationIssue`, `DescriptorViolationType`, severity model         |
 | `dwc-dp-validator-frictionless` | Layer 0 — Frictionless structural validation                         |
-| `dwc-dp-validator-dwcdp` | Layers 1 & 2 — DwC-DP JSON Schema and table schema validation        |
-| `dwc-dp-validator-eml` | Layer 3 — EML metadata validation                                    |
-| `dwc-dp-analyser-cli` | CLI runner                                                           |
+| `dwc-dp-validator-dwcdp`        | Layers 1 & 2 — DwC-DP JSON Schema and table schema validation        |
+| `dwc-dp-validator-eml`          | Layer 3 — EML metadata validation                                    |
+| `dwc-dp-analyser-cli`           | CLI runner                                                           |
 
 ## Key classes
 
-| Class | Responsibility                                                  |
-|---|-----------------------------------------------------------------|
-| `DefaultDataPackageAnalysisOrchestrator` | Sequences all validation and analysis layers                    |
-| `FrictionlessDescriptorValidator` | Layer 0 structural checks                                       |
-| `DwcDpDescriptorValidator` | Layers 1 & 2 DwC-DP checks                                      |
-| `DwcDpProfileValidator` | JSON Schema profile validation via networknt                    |
-| `DwcDpTableSchemaValidator` | Canonical table schema cross-validation                         |
-| `EmlValidator` | Layer 3 EML well-formedness, required elements, XSD             |
-| `JacksonDataPackageParser` | Parses and normalises `datapackage.json`                        |
-| `DuckDbDataPackageAnalyser` | Layer 4 DuckDB-backed data analysis                             |
-| `DuckDbResourceLoader` | Binds data files as DuckDB temp tables                          |
-| `DuckDbDataTypeValidator` | Column type checks via `TRY_CAST`                               |
-| `ValidationIssue` | Single structured issue with severity, location, and JSON detail |
-| `ValidationCli` | CLI entry point                                                 |
+| Class                                    | Responsibility                                                   |
+|------------------------------------------|------------------------------------------------------------------|
+| `DefaultDataPackageAnalysisOrchestrator` | Sequences all validation and analysis layers                     |
+| `FrictionlessDescriptorValidator`        | Layer 0 structural checks                                        |
+| `DwcDpDescriptorValidator`               | Layers 1 & 2 DwC-DP checks                                       |
+| `DwcDpProfileValidator`                  | JSON Schema profile validation via networknt                     |
+| `DwcDpTableSchemaValidator`              | Canonical table schema cross-validation                          |
+| `EmlValidator`                           | Layer 3 EML well-formedness, required elements, XSD              |
+| `JacksonDataPackageParser`               | Parses and normalises `datapackage.json`                         |
+| `DuckDbDataPackageAnalyser`              | Layer 4 DuckDB-backed data analysis                              |
+| `DuckDbResourceLoader`                   | Binds data files as DuckDB temp tables                           |
+| `DuckDbDataTypeValidator`                | Column type checks via `TRY_CAST`                                |
+| `ValidationIssue`                        | Single structured issue with severity, location, and JSON detail |
+| `ValidationCli`                          | CLI entry point                                                  |
 
 ## Validation issues
 
 Every `ValidationIssue` carries:
 
-| Field | Description |
-|---|---|
-| `severity` | `ERROR`, `WARNING`, or `INFO` |
-| `violationType` | Machine-readable `DescriptorViolationType` enum entry |
-| `message` | Human-readable explanation |
-| `location` | JSON Pointer into the document, e.g. `/resources/0/schema/fields/1/type` |
-| `detail` | Structured JSON with context, e.g. `{"keyword":"enum","evaluationPath":"...","actualValue":"object"}` |
+| Field           | Description                                                                                           |
+|-----------------|-------------------------------------------------------------------------------------------------------|
+| `severity`      | `ERROR`, `WARNING`, or `INFO`                                                                         |
+| `violationType` | Machine-readable `DescriptorViolationType` enum entry                                                 |
+| `message`       | Human-readable explanation                                                                            |
+| `location`      | JSON Pointer into the document, e.g. `/resources/0/schema/fields/1/type`                              |
+| `detail`        | Structured JSON with context, e.g. `{"keyword":"enum","evaluationPath":"...","actualValue":"object"}` |
 
 Severity defaults are defined in `DefaultSeverities` and can be overridden per deployment
 by passing a `Map<DescriptorViolationType, ValidationIssue.Severity>` to any validator constructor.
@@ -104,23 +104,23 @@ mvn -q exec:java \
 
 The CLI exits with:
 
-| Code | Meaning |
-|---|---|
-| `0` | All checks passed |
-| `1` | Program error (bad arguments etc.) |
-| `2` | Validation or data violations found |
+| Code | Meaning                             |
+|------|-------------------------------------|
+| `0`  | All checks passed                   |
+| `1`  | Program error (bad arguments etc.)  |
+| `2`  | Validation or data violations found |
 
 ## Configuration
 
 DuckDB resource usage can be tuned via CLI flags or environment variables:
 
-| Flag | Env var | Default | Description |
-|---|---|---|---|
-| `--duckdb-url` | `DUCKDB_URL` | `jdbc:duckdb:` | JDBC connection URL |
-| `--duckdb-memory` | `DUCKDB_MEMORY_LIMIT` | `1500MB` | Memory limit |
-| `--duckdb-threads` | `DUCKDB_THREADS` | `2` | Thread count |
-| `--duckdb-temp-dir` | `DUCKDB_TEMP_DIR` | `./tmp` | Temp directory |
-| `--duckdb-max-temp` | `DUCKDB_MAX_TEMP_SIZE` | `20GB` | Max temp size |
+| Flag                | Env var                | Default        | Description         |
+|---------------------|------------------------|----------------|---------------------|
+| `--duckdb-url`      | `DUCKDB_URL`           | `jdbc:duckdb:` | JDBC connection URL |
+| `--duckdb-memory`   | `DUCKDB_MEMORY_LIMIT`  | `1500MB`       | Memory limit        |
+| `--duckdb-threads`  | `DUCKDB_THREADS`       | `2`            | Thread count        |
+| `--duckdb-temp-dir` | `DUCKDB_TEMP_DIR`      | `./tmp`        | Temp directory      |
+| `--duckdb-max-temp` | `DUCKDB_MAX_TEMP_SIZE` | `20GB`         | Max temp size       |
 
 ## Notes for large datasets
 
