@@ -1,8 +1,9 @@
 package org.gbif.dp.cli;
 
 import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
+
 import org.slf4j.LoggerFactory;
+import ch.qos.logback.classic.Logger;
 
 public class Logging {
     public static void setRootLevel(Level level) {

@@ -1,6 +1,7 @@
 package org.gbif.dp.cli;
 
 import ch.qos.logback.classic.Level;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.gbif.dp.analysis.DefaultDataPackageAnalysisOrchestrator;
@@ -18,6 +19,7 @@ import org.gbif.dp.duckdb.CustomDuckDbConfig;
 import org.gbif.dp.validator.api.ValidationIssue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import picocli.CommandLine;
 
 import java.nio.file.Path;
