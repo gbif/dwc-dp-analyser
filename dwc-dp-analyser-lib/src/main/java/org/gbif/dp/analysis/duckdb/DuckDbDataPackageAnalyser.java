@@ -240,6 +240,13 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
          ResultSet rs = ps.executeQuery()) {
       rs.next();
       count = rs.getLong(1);
+    } catch (Exception e) {
+      String message = String.format("Failed to validate foreign key:[%s], sql:[%s], cause:[%s]",
+        key.reference().resource(),
+        countSql,
+        e.getMessage()
+        );
+      throw new SQLException(message, e);
     }
 
     List<Map<String, Object>> samples = count == 0 ? List.of()
@@ -259,12 +266,17 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
          ResultSet rs = ps.executeQuery()) {
       rs.next();
       return new ColumnStatistics(field.name(), rs.getLong(1), rs.getLong(2));
+    } catch (SQLException e) {
+      String message = String.format("Failed to analyse column statistics for field [%s], sql was [%s], nested cause: [%s]",
+        field.name(), sql, e.getMessage());
+      throw new SQLException(message, e);
     }
   }
 
   private String buildMissingValueWhere(FieldDescriptor field) {
     List<String> castable = field.missingValues().stream()
       .filter(mv -> !mv.rawValue().isEmpty())
+      .filter(mv -> !"null".equalsIgnoreCase(mv.rawValue()))
       .filter(mv -> castable(mv.rawValue(), field.type()))
       .map(mv -> sq(mv.rawValue()))
       .toList();

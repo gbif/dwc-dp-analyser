@@ -78,7 +78,7 @@
                             <shadedClassifierName>runner</shadedClassifierName>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>org.gbif.dp.ValidationCli</mainClass>
+                                    <mainClass>org.gbif.dp.cli.ValidationCli</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>

@@ -88,43 +88,89 @@ by passing a `Map<DescriptorViolationType, ValidationIssue.Severity>` to any val
 
 ## Quick start
 
+Build the project and run tests:
+
 ```bash
 mvn test
+```
 
-# Text output (default)
-mvn -q exec:java \
-  -Dexec.mainClass=org.gbif.dp.cli.ValidationCli \
-  -Dexec.args="/absolute/path/to/datapackage.json"
+Create packages
+```bash
+mvn package
+```
+
+Run against a data package:
+
+```bash
+# Minimal — full validation and statistics, text output
+java -jar dwc-dp-analyser-cli/target/dwc-dp-analyser-cli-0.0.6-SNAPSHOT-runner.jar \
+  /path/to/datapackage.json
 
 # JSON output
-mvn -q exec:java \
-  -Dexec.mainClass=org.gbif.dp.cli.ValidationCli \
-  -Dexec.args="/absolute/path/to/datapackage.json --output-format JSON"
+java -jar dwc-dp-analyser-cli/target/dwc-dp-analyser-cli-0.0.6-SNAPSHOT-runner.jar \
+  /path/to/datapackage.json --output-format JSON
+
+# Verification only (no statistics)
+java -jar dwc-dp-analyser-cli/target/dwc-dp-analyser-cli-0.0.6-SNAPSHOT-runner.jar \
+  /path/to/datapackage.json --report VERIFY
+
+# Statistics only
+java -jar dwc-dp-analyser-cli/target/dwc-dp-analyser-cli-0.0.6-SNAPSHOT-runner.jar \
+  /path/to/datapackage.json --report STATS
+
+# Large datasets — increase memory and spill to disk
+mkdir -p /tmp/duckdb
+java -jar dwc-dp-analyser-cli/target/dwc-dp-analyser-cli-0.0.6-SNAPSHOT-runner.jar \
+  /path/to/datapackage.json \
+  --duckdb-memory 4GB \
+  --duckdb-temp-dir /tmp/duckdb \
+  --duckdb-max-temp 20GB
 ```
+
+> **Note:** `-Xmx` has no effect on DuckDB memory usage. Use `--duckdb-memory` instead.
 
 The CLI exits with:
 
-| Code | Meaning                             |
-|------|-------------------------------------|
-| `0`  | All checks passed                   |
-| `1`  | Program error (bad arguments etc.)  |
-| `2`  | Validation or data violations found |
+| Code | Meaning                            |
+|------|------------------------------------|
+| `0`  | All checks passed                  |
+| `1`  | Program error (bad arguments etc.) |
+| `2`  | Validation or data violations found|
 
 ## Configuration
 
-DuckDB resource usage can be tuned via CLI flags or environment variables:
+All flags can also be set via environment variables.
 
-| Flag                | Env var                | Default        | Description         |
-|---------------------|------------------------|----------------|---------------------|
-| `--duckdb-url`      | `DUCKDB_URL`           | `jdbc:duckdb:` | JDBC connection URL |
-| `--duckdb-memory`   | `DUCKDB_MEMORY_LIMIT`  | `1500MB`       | Memory limit        |
-| `--duckdb-threads`  | `DUCKDB_THREADS`       | `2`            | Thread count        |
-| `--duckdb-temp-dir` | `DUCKDB_TEMP_DIR`      | `./tmp`        | Temp directory      |
-| `--duckdb-max-temp` | `DUCKDB_MAX_TEMP_SIZE` | `20GB`         | Max temp size       |
+### Output
+
+| Flag              | Env var         | Default  | Description                        |
+|-------------------|-----------------|----------|------------------------------------|
+| `--output-format` | `OUTPUT_FORMAT` | `TEXT`   | Output format: `TEXT` or `JSON`    |
+| `--report`        | `REPORT`        | `FULL`   | Report sections: `FULL`, `STATS`, `VERIFY` |
+| `--verbose`       | —               | false    | Enable debug logging               |
+| `--quiet`         | —               | false    | Only show errors                   |
+
+`--report` controls what is included in text output:
+
+| Value    | Includes                          |
+|----------|-----------------------------------|
+| `FULL`   | Validation issues + statistics    |
+| `VERIFY` | Validation issues only            |
+| `STATS`  | Column statistics only            |
+
+### DuckDB
+
+| Flag                | Env var                | Default        | Description          |
+|---------------------|------------------------|----------------|----------------------|
+| `--duckdb-url`      | `DUCKDB_URL`           | `jdbc:duckdb:` | JDBC connection URL  |
+| `--duckdb-memory`   | `DUCKDB_MEMORY_LIMIT`  | `1500MB`       | Memory limit         |
+| `--duckdb-threads`  | `DUCKDB_THREADS`       | `2`            | Thread count         |
+| `--duckdb-temp-dir` | `DUCKDB_TEMP_DIR`      | `./tmp`        | Temp directory       |
+| `--duckdb-max-temp` | `DUCKDB_MAX_TEMP_SIZE` | `20GB`         | Max temp size        |
 
 ## Notes for large datasets
 
-- Data analysis runs entirely inside DuckDB with file-backed scans — no data is loaded into JVM memory.
+- Data analysis runs entirely inside DuckDB with file-backed scans — no data is loaded into JVM memory. So scaling the JVM does nothing, instead set the duckdb memory.
 - Only small violation samples are materialised in Java (default: 20 rows, configurable via `ValidationOptions`).
 - Parquet resources are supported alongside CSV and TSV.
 - CSV dialect (delimiter, quote character, escape character, null sequence) is read from the `dialect` descriptor field, with automatic fallback to tab-separated for `.tsv` extensions.

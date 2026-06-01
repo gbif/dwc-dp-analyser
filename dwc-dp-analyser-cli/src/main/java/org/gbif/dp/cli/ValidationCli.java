@@ -6,16 +6,19 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.gbif.dp.analysis.DefaultDataPackageAnalysisOrchestrator;
 import org.gbif.dp.analysis.api.AnalysisFeature;
+import org.gbif.dp.analysis.api.ColumnStatistics;
 import org.gbif.dp.analysis.api.DataPackageAnalysisOrchestrator;
 import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
 import org.gbif.dp.analysis.api.DataTypeViolation;
 import org.gbif.dp.analysis.api.ForeignKeyViolation;
+import org.gbif.dp.analysis.api.ResourceAnalysisResult;
 import org.gbif.dp.analysis.api.ValidationOptions;
 import org.gbif.dp.analysis.duckdb.DuckDbDataPackageAnalyser;
 import org.gbif.dp.analysis.duckdb.DuckDbDialectRenderer;
 import org.gbif.dp.analysis.duckdb.DuckDbResourceLoader;
 import org.gbif.dp.descriptor.JacksonDataPackageParser;
 import org.gbif.dp.duckdb.CustomDuckDbConfig;
+import org.gbif.dp.validator.api.DescriptorValidationResult;
 import org.gbif.dp.validator.api.ValidationIssue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,7 +29,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class ValidationCli {
 
@@ -81,27 +86,69 @@ public class ValidationCli {
     Duration duration = Duration.between(start, Instant.now());
 
     if (config.outputFormat == Config.OutputFormat.JSON) {
-      printJson(result, duration);
+      printJson(result, duration, config.reportMode);
     } else {
-      printText(result, duration);
+      printText(result, duration, config.reportMode);
     }
 
     return DatapackageAnalysisResult.isValid(result) ? EXIT_VALIDATION_SUCCESS : EXIT_VALIDATION_ERROR;
   }
 
-  private static void printJson(DatapackageAnalysisResult result, Duration duration)
+  private static void printJson(DatapackageAnalysisResult result, Duration duration, Config.ReportMode mode)
     throws JsonProcessingException {
     ObjectMapper mapper = new ObjectMapper();
     Map<String, Object> output = new LinkedHashMap<>();
-    output.put("result", result);
     output.put("durationSeconds", duration.toSeconds());
     output.put("valid", DatapackageAnalysisResult.isValid(result));
+    if (mode == Config.ReportMode.STATS && result.descriptorValidation().canProceedToDataAnalysis()) {
+      List<ResourceAnalysisResult> onlyStats = result.resourceAnalysisResults().stream()
+        .map(resourceResult -> new ResourceAnalysisResult(
+          resourceResult.name(),
+          List.of(),
+          null,
+          List.of(),
+          resourceResult.columnAnalyses(),
+          resourceResult.totalRows()
+        ))
+        .toList();
+      result = new DatapackageAnalysisResult(null, null, onlyStats);
+    }
+    if (mode == Config.ReportMode.VERIFY) {
+      List<ResourceAnalysisResult> onlyValidation = result.resourceAnalysisResults().stream()
+        .map(resourceResult -> new ResourceAnalysisResult(
+          resourceResult.name(),
+          resourceResult.foreignKeyViolations(),
+          resourceResult.primaryKeyViolation(),
+          resourceResult.dataTypeViolations(),
+          List.of(),
+          resourceResult.totalRows()
+        ))
+        .toList();
+      result = new DatapackageAnalysisResult(result.descriptorValidation(), result.emlValidation(), onlyValidation);
+    }
+    output.put("result", result);
     System.out.println(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(output));
   }
 
-  private static void printText(DatapackageAnalysisResult result, Duration duration) {
+  private static void printText(DatapackageAnalysisResult result, Duration duration, Config.ReportMode mode) {
     // ── Descriptor issues ─────────────────────────────────────────────────
     var descriptor = result.descriptorValidation();
+    if (!descriptor.canProceedToDataAnalysis()) {
+      System.out.println("Data analysis skipped due to blocking descriptor errors.");
+      printDuration(duration);
+      return;
+    }
+
+    if (Set.of(Config.ReportMode.FULL, Config.ReportMode.VERIFY).contains(mode)) {
+      printValidationResults(result, descriptor);
+    }
+    if (Set.of(Config.ReportMode.FULL, Config.ReportMode.STATS).contains(mode)) {
+      printStatisticsTable(result.resourceAnalysisResults());
+    }
+    printDuration(duration);
+  }
+
+  private static void printValidationResults(DatapackageAnalysisResult result, DescriptorValidationResult descriptor) {
     if (!descriptor.issues().isEmpty()) {
       System.out.println("=== Descriptor validation ===");
       for (ValidationIssue issue : descriptor.issues()) {
@@ -111,11 +158,6 @@ public class ValidationCli {
       }
     }
 
-    if (!descriptor.canProceedToDataAnalysis()) {
-      System.out.println("Data analysis skipped due to blocking descriptor errors.");
-      printDuration(duration);
-      return;
-    }
 
     // ── EML issues ────────────────────────────────────────────────────────
     var eml = result.emlValidation();
@@ -146,12 +188,48 @@ public class ValidationCli {
         v.resource(), v.field(), v.declaredType(), v.violationCount());
       v.sampleValues().forEach(val -> System.out.println("  bad value: " + val));
     }
-
-    printDuration(duration);
   }
 
   private static void printDuration(Duration d) {
     System.out.printf("duration: %02d:%02d:%02d%n",
       d.toHoursPart(), d.toMinutesPart(), d.toSecondsPart());
+  }
+
+  private static void printStatisticsTable(List<ResourceAnalysisResult> resources) {
+    for (ResourceAnalysisResult resource : resources) {
+      if (resource.columnAnalyses() == null || resource.columnAnalyses().isEmpty()) continue;
+
+      int nameWidth = resource.columnAnalyses().stream()
+        .mapToInt(c -> c.name().length()).max().orElse(4);
+      nameWidth = Math.max(nameWidth, 5);
+
+      long maxPop = resource.columnAnalyses().stream()
+        .mapToLong(ColumnStatistics::populatedValues).max().orElse(0);
+      long maxUniq = resource.columnAnalyses().stream()
+        .mapToLong(ColumnStatistics::uniqueValues).max().orElse(0);
+      int popWidth  = Math.max(String.valueOf(maxPop).length(),  9);
+      int uniqWidth = Math.max(String.valueOf(maxUniq).length(), 6);
+      int totalWidth = Math.max(String.valueOf(resource.totalRows()).length(), 5);
+      int pctWidth  = 6;
+
+      String fmt = "| %-" + nameWidth + "s | %" + totalWidth + "s | %" + popWidth + "s | %" + uniqWidth + "s | %" + pctWidth + "s |%n";
+      String divider = "+-" + "-".repeat(nameWidth) + "-+-" + "-".repeat(totalWidth) + "-+-"
+        + "-".repeat(popWidth) + "-+-" + "-".repeat(uniqWidth) + "-+-" + "-".repeat(pctWidth) + "-+";
+
+      System.out.println("=== " + resource.name() + " (" + resource.totalRows() + " rows) ===");
+      System.out.println(divider);
+      System.out.printf(fmt, "Field", "Total", "Populated", "Unique", "Fill%");
+      System.out.println(divider);
+
+      for (ColumnStatistics col : resource.columnAnalyses()) {
+        String pct = resource.totalRows() > 0
+          ? String.format("%.1f%%", 100.0 * col.populatedValues() / resource.totalRows())
+          : "N/A";
+        System.out.printf(fmt, col.name(), resource.totalRows(), col.populatedValues(), col.uniqueValues(), pct);
+      }
+
+      System.out.println(divider);
+      System.out.println();
+    }
   }
 }

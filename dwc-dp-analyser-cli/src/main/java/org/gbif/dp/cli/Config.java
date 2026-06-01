@@ -38,6 +38,12 @@ public class Config implements Runnable {
     defaultValue = "${env:DUCKDB_MAX_TEMP_SIZE:-20GB}")
   public String duckdbMaxTemp;
 
+  @Option(names = "--report", description = "Report sections: FULL, STATS, VERIFY",
+    defaultValue = "${env:REPORT:-FULL}")
+  public ReportMode reportMode;
+
+  public enum ReportMode { FULL, STATS, VERIFY }
+
   @Option(names = "--verbose", description = "Enable debug logging")
   public boolean verbose;
 
