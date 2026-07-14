@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+#
+# release.sh — manual release helper for dwc-dp-analyser.
+#
+#   ./release.sh 1.0.0
+#
+# What it does:
+#   1. Finds the versioned CLI runner jar under dwc-dp-analyser-cli/target/
+#      (Maven/Quarkus bakes the pom version into the filename, so this is
+#      a glob match, not a fixed path).
+#   2. Copies it to a staging dir under a fixed, version-agnostic name —
+#      this fixed name is what nfpm.yaml actually packages, so nfpm never
+#      has to know or care about the Maven version in the filename.
+#   3. Runs nfpm three times (deb, rpm, archlinux/pacman) and assembles a
+#      Windows portable zip (bin/ + lib/, matching what the .bat wrapper
+#      expects) — four artifacts land in dist/.
+#
+# Requires: nfpm installed and on PATH (https://nfpm.goreleaser.com), and
+# `zip` available for the Windows archive.
+
+set -euo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "usage: $0 <version>" >&2
+  echo "  e.g.: $0 1.0.0" >&2
+  exit 1
+fi
+
+# --- fail fast if the tools this script shells out to aren't installed ---
+check_dependencies() {
+  local missing=0
+
+  if ! command -v nfpm >/dev/null 2>&1; then
+    echo "error: nfpm not found on PATH" >&2
+    echo "  install: https://nfpm.goreleaser.com/install/" >&2
+    missing=1
+  fi
+
+  if ! command -v zip >/dev/null 2>&1; then
+    echo "error: zip not found on PATH" >&2
+    echo "  install: e.g. 'sudo pacman -S zip' / 'sudo apt install zip'" >&2
+    missing=1
+  fi
+
+  if [ "$missing" -eq 1 ]; then
+    exit 1
+  fi
+}
+
+check_dependencies
+
+VERSION="$1"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLI_TARGET_DIR="${ROOT_DIR}/dwc-dp-analyser-cli/target"
+STAGING_DIR="${ROOT_DIR}/packaging/staging"
+DIST_DIR="${ROOT_DIR}/dist"
+
+echo "==> looking for the runner jar in ${CLI_TARGET_DIR}"
+
+# The Maven/Quarkus build embeds the pom version in the filename
+# (dwc-dp-analyser-cli-${VERSION}-runner.jar), so glob rather than assume
+# a fixed name. If more than one match turns up (stale jar from a previous
+# build left behind), fail loudly instead of silently picking one.
+shopt -s nullglob
+matches=("${CLI_TARGET_DIR}"/dwc-dp-analyser-cli-*-runner.jar)
+shopt -u nullglob
+
+if [ ${#matches[@]} -eq 0 ]; then
+  echo "error: no runner jar found matching dwc-dp-analyser-cli-*-runner.jar" >&2
+  echo "  did you run 'mvn package' in dwc-dp-analyser-cli first?" >&2
+  exit 1
+elif [ ${#matches[@]} -gt 1 ]; then
+  echo "error: found more than one candidate runner jar, refusing to guess:" >&2
+  printf '  %s\n' "${matches[@]}" >&2
+  echo "  run 'mvn clean package' to remove stale build output, then retry" >&2
+  exit 1
+fi
+
+SOURCE_JAR="${matches[0]}"
+echo "==> found: ${SOURCE_JAR}"
+
+mkdir -p "${STAGING_DIR}" "${DIST_DIR}"
+cp "${SOURCE_JAR}" "${STAGING_DIR}/dwc-dp-analyser-cli-runner.jar"
+echo "==> staged as ${STAGING_DIR}/dwc-dp-analyser-cli-runner.jar"
+
+echo "==> building .deb"
+VERSION="${VERSION}" nfpm package \
+  --config "${ROOT_DIR}/packaging/nfpm.yaml" \
+  --target "${DIST_DIR}/" \
+  --packager deb
+
+echo "==> building .rpm"
+VERSION="${VERSION}" nfpm package \
+  --config "${ROOT_DIR}/packaging/nfpm.yaml" \
+  --target "${DIST_DIR}/" \
+  --packager rpm
+
+echo "==> building pacman package"
+VERSION="${VERSION}" nfpm package \
+  --config "${ROOT_DIR}/packaging/nfpm.yaml" \
+  --target "${DIST_DIR}/" \
+  --packager archlinux
+
+echo "==> building windows portable zip"
+# The .bat wrapper looks for the jar at ..\lib\ relative to itself, so the
+# zip has to mirror that bin/ + lib/ split — same shape a real installer
+# would use, just without an installer.
+WIN_STAGE_DIR="${STAGING_DIR}/windows/dwc-dp-analyser-${VERSION}"
+rm -rf "${WIN_STAGE_DIR}"
+mkdir -p "${WIN_STAGE_DIR}/bin" "${WIN_STAGE_DIR}/lib"
+cp "${ROOT_DIR}/packaging/dwc-dp-analyser.bat" "${WIN_STAGE_DIR}/bin/"
+cp "${STAGING_DIR}/dwc-dp-analyser-cli-runner.jar" "${WIN_STAGE_DIR}/lib/dwc-dp-analyser-cli.jar"
+
+(
+  cd "${STAGING_DIR}/windows"
+  zip -qr "${DIST_DIR}/dwc-dp-analyser-${VERSION}-windows.zip" "dwc-dp-analyser-${VERSION}"
+)
+
+echo "==> done. artifacts in ${DIST_DIR}/:"
+ls -1 "${DIST_DIR}"

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+#
+# dwc-dp-analyser — wrapper script for the DwC-DP analyser CLI.
+#
+# Resolves a Java runtime, locates the CLI jar (works both from a system
+# package install and from a portable extracted tarball), and execs the
+# jar so the JVM inherits this process (correct exit code, correct signals).
+
+set -euo pipefail
+
+readonly REQUIRED_JAVA_MAJOR=17
+readonly APP_NAME="dwc-dp-analyser"
+
+# --- locate this script's real directory (follow symlinks, e.g. /usr/bin) ---
+resolve_script_dir() {
+  local source="${BASH_SOURCE[0]}"
+  while [ -L "$source" ]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+    source="$(readlink "$source")"
+    [[ "$source" != /* ]] && source="$dir/$source"
+  done
+  cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd
+}
+
+SCRIPT_DIR="$(resolve_script_dir)"
+
+# --- find the jar: system package layout, then portable tarball layout ---
+find_jar() {
+  if [ -n "${DWC_DP_ANALYSER_JAR:-}" ]; then
+    echo "$DWC_DP_ANALYSER_JAR"
+    return 0
+  fi
+
+  local candidates=(
+    "/usr/share/${APP_NAME}/${APP_NAME}-cli.jar"          # system package install
+    "${SCRIPT_DIR}/../lib/${APP_NAME}-cli.jar"             # portable tarball: bin/ + lib/
+    "${SCRIPT_DIR}/${APP_NAME}-cli.jar"                    # jar sitting next to the script
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [ -f "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+if ! JAR_PATH="$(find_jar)"; then
+  echo "error: could not locate ${APP_NAME}-cli.jar" >&2
+  echo "  set DWC_DP_ANALYSER_JAR=/path/to/jar to override the search" >&2
+  exit 1
+fi
+
+# --- find a Java runtime ---
+if [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME}/bin/java" ]; then
+  JAVA_BIN="${JAVA_HOME}/bin/java"
+elif command -v java >/dev/null 2>&1; then
+  JAVA_BIN="$(command -v java)"
+else
+  echo "error: no Java runtime found" >&2
+  echo "  install a JRE/JDK ${REQUIRED_JAVA_MAJOR}+ or set JAVA_HOME" >&2
+  exit 1
+fi
+
+# --- verify minimum Java version ---
+java_major_version() {
+  local version_string major
+  version_string="$("$JAVA_BIN" -version 2>&1 | head -n1)"
+  # handles both "1.8.0_XXX" (old scheme) and "17.0.X" (current scheme)
+  if [[ "$version_string" =~ \"1\.([0-9]+)\. ]]; then
+    major="${BASH_REMATCH[1]}"
+  elif [[ "$version_string" =~ \"([0-9]+)\. ]] || [[ "$version_string" =~ \"([0-9]+)\" ]]; then
+    major="${BASH_REMATCH[1]}"
+  else
+    major=0
+  fi
+  echo "$major"
+}
+
+JAVA_MAJOR="$(java_major_version)"
+if [ "$JAVA_MAJOR" -lt "$REQUIRED_JAVA_MAJOR" ]; then
+  echo "error: ${APP_NAME} requires Java ${REQUIRED_JAVA_MAJOR}+, found major version ${JAVA_MAJOR}" >&2
+  echo "  using: ${JAVA_BIN}" >&2
+  exit 1
+fi
+
+# --- JVM options: sane default, fully overridable ---
+: "${DWC_DP_ANALYSER_JAVA_OPTS:=-Xmx2g}"
+
+# shellcheck disable=SC2086
+exec "$JAVA_BIN" ${DWC_DP_ANALYSER_JAVA_OPTS} -jar "$JAR_PATH" "$@"
