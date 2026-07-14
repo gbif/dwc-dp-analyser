@@ -16,26 +16,27 @@ package org.gbif.dp.validator.dwcdp;
 import org.gbif.dp.validator.api.DescriptorViolationType;
 import org.gbif.dp.validator.api.ValidationIssue;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * Uses the legacy no-arg / 2-arg constructors, which default to the 0.1 table schemas — see
+ * {@link DwcDpTableSchemaValidator}'s class-level note on why the legacy path still exists.
+ */
 class DwcDpTableSchemaValidatorTest {
 
   final DwcDpTableSchemaValidator validator = new DwcDpTableSchemaValidator();
 
-  @TempDir Path tempDir;
-
   @Test
-  void shouldReportMissingRequiredField() throws Exception {
+  void shouldReportMissingRequiredField() {
     // occurrence requires occurrenceID and eventID
-    Files.writeString(tempDir.resolve("occurrence.csv"), "occurrenceID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    String json = """
         {
           "name": "test",
           "resources": [{
@@ -48,21 +49,19 @@ class DwcDpTableSchemaValidatorTest {
             }
           }]
         }
-        """);
+        """;
 
-    List<ValidationIssue> issues = validator.validate(tempDir.resolve("datapackage.json"));
+    List<ValidationIssue> issues = validator.validate(json);
 
-    // eventID is required in occurrence — should be reported
     assertTrue(issues.stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.REQUIRED_FIELD_MISSING
-          && i.message().contains("eventID")),
-      "Expected REQUIRED_FIELD_MISSING for eventID, got: " + issues);
+                                          i.violationType() == DescriptorViolationType.REQUIRED_FIELD_MISSING
+                                          && i.message().contains("eventID")),
+               "Expected REQUIRED_FIELD_MISSING for eventID, got: " + issues);
   }
 
   @Test
-  void shouldReportFieldTypeMismatch() throws Exception {
-    Files.writeString(tempDir.resolve("occurrence.csv"), "occurrenceID,eventID\n1,e1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+  void shouldReportFieldTypeMismatch() {
+    String json = """
         {
           "name": "test",
           "resources": [{
@@ -76,21 +75,20 @@ class DwcDpTableSchemaValidatorTest {
             }
           }]
         }
-        """);
+        """;
 
-    List<ValidationIssue> issues = validator.validate(tempDir.resolve("datapackage.json"));
+    List<ValidationIssue> issues = validator.validate(json);
 
     // occurrenceID canonical type is "string" — declaring "integer" is a mismatch
     assertTrue(issues.stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.FIELD_TYPE_MISMATCH
-          && i.message().contains("occurrenceID")),
-      "Expected FIELD_TYPE_MISMATCH for occurrenceID, got: " + issues);
+                                          i.violationType() == DescriptorViolationType.FIELD_TYPE_MISMATCH
+                                          && i.message().contains("occurrenceID")),
+               "Expected FIELD_TYPE_MISMATCH for occurrenceID, got: " + issues);
   }
 
   @Test
-  void shouldReportUnknownField() throws Exception {
-    Files.writeString(tempDir.resolve("occurrence.csv"), "occurrenceID,eventID,myCustomField\n1,e1,x\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+  void shouldReportUnknownField() {
+    String json = """
         {
           "name": "test",
           "resources": [{
@@ -105,23 +103,22 @@ class DwcDpTableSchemaValidatorTest {
             }
           }]
         }
-        """);
+        """;
 
-    List<ValidationIssue> issues = validator.validate(tempDir.resolve("datapackage.json"));
+    List<ValidationIssue> issues = validator.validate(json);
 
     assertTrue(issues.stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.UNKNOWN_FIELD
-          && i.message().contains("myCustomField")),
-      "Expected UNKNOWN_FIELD for myCustomField, got: " + issues);
+                                          i.violationType() == DescriptorViolationType.UNKNOWN_FIELD
+                                          && i.message().contains("myCustomField")),
+               "Expected UNKNOWN_FIELD for myCustomField, got: " + issues);
     assertEquals(ValidationIssue.Severity.INFO,
-      issues.stream().filter(i -> i.violationType() == DescriptorViolationType.UNKNOWN_FIELD)
-        .findFirst().orElseThrow().severity());
+                 issues.stream().filter(i -> i.violationType() == DescriptorViolationType.UNKNOWN_FIELD)
+                   .findFirst().orElseThrow().severity());
   }
 
   @Test
-  void shouldNotApplyChecksToNonReservedResourceNames() throws Exception {
-    Files.writeString(tempDir.resolve("custom.csv"), "id\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+  void shouldNotApplyChecksToNonReservedResourceNames() {
+    String json = """
         {
           "name": "test",
           "resources": [{
@@ -130,21 +127,20 @@ class DwcDpTableSchemaValidatorTest {
             "schema": { "fields": [{ "name": "id", "type": "integer" }] }
           }]
         }
-        """);
+        """;
 
-    List<ValidationIssue> issues = validator.validate(tempDir.resolve("datapackage.json"));
+    List<ValidationIssue> issues = validator.validate(json);
 
     assertTrue(issues.stream().noneMatch(i ->
-        i.violationType() == DescriptorViolationType.REQUIRED_FIELD_MISSING
-          || i.violationType() == DescriptorViolationType.FIELD_TYPE_MISMATCH
-          || i.violationType() == DescriptorViolationType.UNKNOWN_FIELD),
-      "No table-schema checks should fire for non-reserved resource names");
+                                           i.violationType() == DescriptorViolationType.REQUIRED_FIELD_MISSING
+                                           || i.violationType() == DescriptorViolationType.FIELD_TYPE_MISMATCH
+                                           || i.violationType() == DescriptorViolationType.UNKNOWN_FIELD),
+               "No table-schema checks should fire for non-reserved resource names");
   }
 
   @Test
-  void shouldAllowSeverityOverride() throws Exception {
-    Files.writeString(tempDir.resolve("occurrence.csv"), "occurrenceID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+  void shouldAllowSeverityOverride() {
+    String json = """
         {
           "name": "test",
           "resources": [{
@@ -155,20 +151,31 @@ class DwcDpTableSchemaValidatorTest {
             }
           }]
         }
-        """);
+        """;
 
     // Override REQUIRED_FIELD_MISSING to INFO
     DwcDpTableSchemaValidator lenientValidator = new DwcDpTableSchemaValidator(
-      new com.fasterxml.jackson.databind.ObjectMapper(),
-      java.util.Map.of(
-        DescriptorViolationType.REQUIRED_FIELD_MISSING,
-        ValidationIssue.Severity.INFO));
+      new ObjectMapper(),
+      Map.of(DescriptorViolationType.REQUIRED_FIELD_MISSING, ValidationIssue.Severity.INFO));
 
-    List<ValidationIssue> issues = lenientValidator.validate(tempDir.resolve("datapackage.json"));
+    List<ValidationIssue> issues = lenientValidator.validate(json);
 
     issues.stream()
       .filter(i -> i.violationType() == DescriptorViolationType.REQUIRED_FIELD_MISSING)
       .forEach(i -> assertEquals(ValidationIssue.Severity.INFO, i.severity(),
-        "REQUIRED_FIELD_MISSING should be demoted to INFO via override"));
+                                 "REQUIRED_FIELD_MISSING should be demoted to INFO via override"));
+  }
+
+  @Test
+  void shouldReportUnavailableWhenIndexMissingForClasspathBase() {
+    DwcDpTableSchemaValidator validatorWithBadBase = new DwcDpTableSchemaValidator(
+      new ObjectMapper(), Map.of(), "/schemas/does-not-exist");
+
+    List<ValidationIssue> issues = validatorWithBadBase.validate("""
+        { "name": "test", "resources": [] }
+        """);
+
+    assertEquals(1, issues.size());
+    assertEquals(DescriptorViolationType.TABLE_SCHEMA_UNAVAILABLE, issues.get(0).violationType());
   }
 }

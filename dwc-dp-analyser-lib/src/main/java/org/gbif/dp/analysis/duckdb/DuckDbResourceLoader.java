@@ -13,8 +13,13 @@
  */
 package org.gbif.dp.analysis.duckdb;
 
+import org.gbif.dp.common.io.DataPackageSource;
+import org.gbif.dp.common.io.ResourceLocationResolver;
+import org.gbif.dp.common.io.ResourceResult;
 import org.gbif.dp.descriptor.DialectDescriptor;
 
+import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -36,9 +41,18 @@ public class DuckDbResourceLoader {
   }
 
   public void createResourceTempTable(
-    Connection connection, String name, List<Path> paths, DialectDescriptor dialect)
-    throws SQLException {
-    String sql = "CREATE TEMP TABLE " + q(name) + " AS SELECT * FROM " + dialectRenderer.buildReadQuery(paths, dialect);
+    Connection connection, DataPackageSource source, String name, List<String> paths,
+    DialectDescriptor dialect) throws SQLException, IOException {
+
+    checkResourcesExist(source, name, paths);
+
+    List<String> resolvedLocations = paths.stream()
+      .map(path -> ResourceLocationResolver.resolve(source.rawLocation(), path))
+      .map(DuckDbResourceLoader::toDuckDbLocation)
+      .toList();
+
+    String sql = "CREATE TEMP TABLE " + q(name) + " AS SELECT * FROM "
+                 + dialectRenderer.buildReadQuery(resolvedLocations, dialect);
     log.debug("Running create temporary table sql: [{}]", sql);
     try (Statement statement = connection.createStatement()) {
       statement.execute(sql);
@@ -47,4 +61,43 @@ public class DuckDbResourceLoader {
     }
   }
 
+  /**
+   * DuckDB's {@code read_csv_auto}/{@code read_parquet} treat a plain string argument as a
+   * local filesystem glob — they do not strip a {@code file://} scheme, so a resolved
+   * {@code file:} URI must be converted back to a bare path before DuckDB sees it. Other
+   * schemes ({@code hdfs://}, {@code s3://}, ...) are passed through unchanged: those are
+   * exactly the form DuckDB's own extensions (httpfs, etc.) expect.
+   */
+  private static String toDuckDbLocation(String resolvedLocation) {
+    URI uri = URI.create(resolvedLocation);
+    if ("file".equals(uri.getScheme())) {
+      return Path.of(uri).toString();
+    }
+    return resolvedLocation;
+  }
+
+  private void checkResourcesExist(DataPackageSource source, String resourceName, List<String> paths)
+    throws IOException {
+    for (String path : paths) {
+      ResourceResult result = source.openResource(path);
+      switch (result.kind()) {
+        case FOUND -> {
+          try {
+            ((ResourceResult.Found) result).close();
+          } catch (IOException e) {
+            log.debug("Non-fatal: could not close existence-check stream for {}: {}",
+                      path, e.getMessage());
+          }
+        }
+        case MISSING -> throw new IOException(
+          "Resource '" + resourceName + "' declares path '" + path + "' which does not exist.");
+        case FAILED -> {
+          ResourceResult.Failed failed = (ResourceResult.Failed) result;
+          throw new IOException(
+            "Resource '" + resourceName + "' declares path '" + path
+            + "' which could not be opened: " + failed.cause().getMessage(), failed.cause());
+        }
+      }
+    }
+  }
 }

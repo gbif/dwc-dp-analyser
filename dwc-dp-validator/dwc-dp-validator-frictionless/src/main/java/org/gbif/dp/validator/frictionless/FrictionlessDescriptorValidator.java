@@ -13,12 +13,14 @@
  */
 package org.gbif.dp.validator.frictionless;
 
+import org.gbif.dp.common.io.DataPackageSource;
+import org.gbif.dp.common.io.ResourcePathTraversal;
+import org.gbif.dp.common.io.ResourceResult;
 import org.gbif.dp.validator.api.DescriptorValidationResult;
 import org.gbif.dp.validator.api.DescriptorViolationType;
 import org.gbif.dp.validator.api.ValidationIssue;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,22 +37,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Validates a datapackage.json against the Frictionless Data Package v1 specification.
  *
+ * <p>Deliberately operates on the raw {@link JsonNode} tree, not the lenient
+ * {@code org.gbif.dp.descriptor} model — that model silently drops malformed entries
+ * (blank resource names, resources with neither path nor data) so downstream consumption
+ * gets something usable. A structural validator needs to see exactly those malformed
+ * entries in order to report on them, so it re-parses independently here rather than
+ * reusing the model.
+ *
  * <p>Checks (blocking ERRORs first, then warnings):
  * <ol>
- *   <li>File exists</li>
+ *   <li>Descriptor readable</li>
  *   <li>Valid JSON</li>
  *   <li>{@code resources} is a non-empty array</li>
  *   <li>{@code name} present and non-blank</li>
  *   <li>Each resource has a non-blank {@code name}</li>
- *   <li>Each resource path exists on disk</li>
+ *   <li>Each resource path contains no directory traversal, and resolves via the source</li>
  *   <li>FK {@code reference.resource} values resolve to declared resource names</li>
  *   <li>Field {@code type} values are from the Frictionless v1 vocabulary</li>
  * </ol>
- *
- * <p>Locations use JSON Pointer notation (e.g. {@code /resources/0/schema/fields/1/type}).
- *
- * <p>Severity of each violation type can be overridden at construction time via a
- * {@code Map<DescriptorViolationType, ValidationIssue.Severity>}.
  */
 public class FrictionlessDescriptorValidator implements DescriptorValidator {
 
@@ -78,21 +82,24 @@ public class FrictionlessDescriptorValidator implements DescriptorValidator {
   }
 
   @Override
-  public DescriptorValidationResult validate(Path descriptorPath) {
+  public DescriptorValidationResult validate(DataPackageSource source) {
     List<ValidationIssue> issues = new ArrayList<>();
 
-    // 1. File existence
-    if (!Files.exists(descriptorPath)) {
+    // 1. Descriptor readable
+    String content;
+    try {
+      content = source.readDescriptor();
+    } catch (IOException e) {
       return DescriptorValidationResult.of(List.of(issue(
         DescriptorViolationType.DESCRIPTOR_NOT_FOUND,
-        "datapackage.json not found at: " + descriptorPath,
+        "datapackage.json could not be read: " + e.getMessage(),
         null, null)));
     }
 
     // 2. Valid JSON
     JsonNode root;
     try {
-      root = mapper.readTree(descriptorPath.toFile());
+      root = mapper.readTree(content);
     } catch (Exception e) {
       return DescriptorValidationResult.of(List.of(issue(
         DescriptorViolationType.INVALID_JSON,
@@ -112,8 +119,8 @@ public class FrictionlessDescriptorValidator implements DescriptorValidator {
     // 4. name
     if (root.path("name").asText("").isBlank()) {
       issues.add(issue(DescriptorViolationType.MISSING_NAME,
-        "The 'name' property is missing or blank.",
-        "/name", null));
+                       "The 'name' property is missing or blank.",
+                       "/name", null));
     }
 
     // Collect resource names for FK cross-reference
@@ -124,7 +131,6 @@ public class FrictionlessDescriptorValidator implements DescriptorValidator {
     }
 
     // 5–8. Per-resource checks
-    Path baseDir = descriptorPath.getParent();
     for (int i = 0; i < resourcesNode.size(); i++) {
       JsonNode resource = resourcesNode.get(i);
       String loc = "/resources/" + i;
@@ -132,12 +138,12 @@ public class FrictionlessDescriptorValidator implements DescriptorValidator {
       // 5. Resource name
       if (resource.path("name").asText("").isBlank()) {
         issues.add(issue(DescriptorViolationType.RESOURCE_MISSING_NAME,
-          "Resource at index " + i + " has no 'name' property.",
-          loc + "/name", null));
+                         "Resource at index " + i + " has no 'name' property.",
+                         loc + "/name", null));
       }
 
-      // 6. Paths on disk
-      validatePaths(resource, baseDir, loc, issues);
+      // 6. Paths — traversal, then existence via the source
+      validatePaths(resource, source, loc, issues);
 
       // 7. FK references
       validateFkReferences(resource, resourceNames, loc, issues);
@@ -151,7 +157,7 @@ public class FrictionlessDescriptorValidator implements DescriptorValidator {
 
   // ── per-resource checks ───────────────────────────────────────────────────
 
-  private void validatePaths(JsonNode resource, Path baseDir, String loc,
+  private void validatePaths(JsonNode resource, DataPackageSource source, String loc,
                              List<ValidationIssue> issues) {
     JsonNode pathNode = resource.path("path");
     if (pathNode.isMissingNode() || pathNode.isNull()) return;
@@ -165,11 +171,32 @@ public class FrictionlessDescriptorValidator implements DescriptorValidator {
     }
 
     for (String rel : paths) {
-      if (!Files.exists(baseDir.resolve(rel).normalize())) {
+      if (ResourcePathTraversal.containsTraversal(rel)) {
         issues.add(issue(DescriptorViolationType.PATH_NOT_FOUND,
-          "Resource path does not exist on disk: " + rel,
-          loc + "/path",
-          detail("path", rel)));
+                         "Resource path contains directory traversal and is not permitted: " + rel,
+                         loc + "/path", detail("path", rel)));
+        continue;
+      }
+
+      ResourceResult result = source.openResource(rel);
+      switch (result.kind()) {
+        case MISSING -> issues.add(issue(DescriptorViolationType.PATH_NOT_FOUND,
+                                         "Resource path does not exist: " + rel,
+                                         loc + "/path", detail("path", rel)));
+        case FAILED -> {
+          ResourceResult.Failed failed = (ResourceResult.Failed) result;
+          issues.add(issue(DescriptorViolationType.PATH_NOT_FOUND,
+                           "Resource path could not be opened: " + rel + " (" + failed.cause().getMessage() + ")",
+                           loc + "/path", detail("path", rel)));
+        }
+        case FOUND -> {
+          // Existence-only check — close immediately without reading.
+          try (ResourceResult.Found found = (ResourceResult.Found) result) {
+            // no-op
+          } catch (IOException e) {
+            log.warn("Error closing resource stream for {}: {}", rel, e.getMessage());
+          }
+        }
       }
     }
   }
@@ -182,9 +209,9 @@ public class FrictionlessDescriptorValidator implements DescriptorValidator {
       String ref = fkNodes.get(j).path("reference").path("resource").asText("").trim();
       if (!ref.isBlank() && !resourceNames.contains(ref)) {
         issues.add(issue(DescriptorViolationType.FK_UNKNOWN_REFERENCE_RESOURCE,
-          "Foreign key references undeclared resource: '" + ref + "'.",
-          loc + "/schema/foreignKeys/" + j + "/reference/resource",
-          detail("referencedResource", ref)));
+                         "Foreign key references undeclared resource: '" + ref + "'.",
+                         loc + "/schema/foreignKeys/" + j + "/reference/resource",
+                         detail("referencedResource", ref)));
       }
     }
   }
@@ -197,9 +224,9 @@ public class FrictionlessDescriptorValidator implements DescriptorValidator {
       String type = field.path("type").asText("string").trim().toLowerCase();
       if (!FRICTIONLESS_TYPES.contains(type)) {
         issues.add(issue(DescriptorViolationType.UNKNOWN_FIELD_TYPE,
-          "Field '" + field.path("name").asText("?") + "' has unknown type: '" + type + "'.",
-          loc + "/schema/fields/" + k + "/type",
-          detail("fieldName", field.path("name").asText("?"), "actualType", type)));
+                         "Field '" + field.path("name").asText("?") + "' has unknown type: '" + type + "'.",
+                         loc + "/schema/fields/" + k + "/type",
+                         detail("fieldName", field.path("name").asText("?"), "actualType", type)));
       }
     }
   }

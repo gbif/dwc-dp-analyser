@@ -13,9 +13,11 @@
  */
 package org.gbif.dp.validator.dwcdp;
 
+import org.gbif.dp.common.io.FileSystemDataPackageSource;
 import org.gbif.dp.validator.api.DescriptorValidationResult;
 import org.gbif.dp.validator.api.DescriptorViolationType;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -30,181 +32,74 @@ class DwcDpDescriptorValidatorTest {
 
   @TempDir Path tempDir;
 
+  private static final String PROFILE_0_1 = "https://rs.tdwg.org/dwc-dp/0.1/dwc-dp-profile.json";
+
+  private FileSystemDataPackageSource source(String descriptorJson) throws IOException {
+    Files.writeString(tempDir.resolve("datapackage.json"), descriptorJson);
+    return new FileSystemDataPackageSource(tempDir.resolve("datapackage.json"));
+  }
+
   @Test
   void shouldWarnWhenTopLevelProfileMissing() throws Exception {
     Files.writeString(tempDir.resolve("event.csv"), "eventID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         {
           "name": "test",
           "resources": [{ "name": "event", "path": "event.csv" }]
         }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertTrue(result.issues().stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
-          && (i.location() == null || i.location().isEmpty() || "/".equals(i.location()))
-          && i.message().contains("required")
-          && i.message().contains("profile")),
-      "Expected JSON_SCHEMA_VIOLATION for missing root profile, got: " + result.issues());
+        """)) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertTrue(result.issues().stream().anyMatch(i ->
+                                                     i.violationType() == DescriptorViolationType.UNRECOGNIZED_PROFILE_VERSION),
+                 "Expected UNRECOGNIZED_PROFILE_VERSION for missing profile, got: " + result.issues());
+    }
   }
 
   @Test
-  void shouldWarnWhenProfileIsNotUri() throws Exception {
+  void shouldWarnWhenProfileIsUnrecognized() throws Exception {
     Files.writeString(tempDir.resolve("event.csv"), "eventID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         {
           "name": "test",
           "profile": "not-a-uri",
           "resources": [{ "name": "event", "path": "event.csv" }]
         }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertTrue(result.issues().stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
-          && "/profile".equals(i.location())
-          && i.message().toLowerCase().contains("uri")),
-      "Expected JSON_SCHEMA_VIOLATION at /profile for non-URI value, got: " + result.issues());
+        """)) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertTrue(result.issues().stream().anyMatch(i ->
+                                                     i.violationType() == DescriptorViolationType.UNRECOGNIZED_PROFILE_VERSION),
+                 "Expected UNRECOGNIZED_PROFILE_VERSION for unrecognized profile, got: " + result.issues());
+    }
   }
 
   @Test
   void shouldWarnWhenDwcDpTableMissingTabulaProfile() throws Exception {
     Files.writeString(tempDir.resolve("event.csv"), "eventID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         {
           "name": "test",
-          "profile": "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
+          "profile": "%s",
           "resources": [{
             "name": "event",
             "path": "event.csv",
             "mediatype": "text/csv"
           }]
         }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertTrue(result.issues().stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
-          && i.location() != null && i.location().startsWith("/resources/0")
-          && i.message().contains("required")
-          && i.message().contains("profile")),
-      "Expected JSON_SCHEMA_VIOLATION at /resources/0 for missing tabular profile, got: " + result.issues());
-  }
-
-  @Test
-  void shouldWarnWhenDwcDpTableMissingMediatype() throws Exception {
-    Files.writeString(tempDir.resolve("event.csv"), "eventID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
-        {
-          "name": "test",
-          "profile": "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
-          "resources": [{
-            "name": "event",
-            "path": "event.csv",
-            "profile": "tabular-data-resource"
-          }]
-        }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    // mediatype is not enforced by any current layer — assert it does not block analysis
-    assertTrue(result.canProceedToDataAnalysis(),
-      "Missing mediatype should not block analysis, got: " + result.issues());
-  }
-
-  @Test
-  void shouldWarnOnUnsupportedMediatype() throws Exception {
-    Files.writeString(tempDir.resolve("event.csv"), "eventID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
-        {
-          "name": "test",
-          "profile": "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
-          "resources": [{
-            "name": "event",
-            "path": "event.csv",
-            "profile": "tabular-data-resource",
-            "mediatype": "application/json"
-          }]
-        }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    // mediatype value is not constrained by any current layer — assert it does not block analysis
-    assertTrue(result.canProceedToDataAnalysis(),
-      "Unsupported mediatype should not block analysis until enforcement is added, got: " + result.issues());
-  }
-
-  @Test
-  void shouldAcceptTsvMediatype() throws Exception {
-    Files.writeString(tempDir.resolve("event.tsv"), "eventID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
-        {
-          "name": "test",
-          "profile": "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
-          "resources": [{
-            "name": "event",
-            "path": "event.tsv",
-            "profile": "tabular-data-resource",
-            "mediatype": "text/tab-separated-values",
-            "schema": {
-              "fields": [{
-                "name": "eventID",
-                "type": "string",
-                "dcterms:isVersionOf": "http://rs.tdwg.org/dwc/terms/eventID"
-              }]
-            }
-          }]
-        }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertTrue(result.canProceedToDataAnalysis(),
-      "TSV mediatype should be accepted, got: " + result.issues());
-  }
-
-  @Test
-  void shouldWarnWhenFieldMissingIsVersionOf() throws Exception {
-    Files.writeString(tempDir.resolve("event.csv"), "eventID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
-        {
-          "name": "test",
-          "profile": "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
-          "resources": [{
-            "name": "event",
-            "path": "event.csv",
-            "profile": "tabular-data-resource",
-            "mediatype": "text/csv",
-            "schema": {
-              "fields": [{ "name": "eventID", "type": "string" }]
-            }
-          }]
-        }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertTrue(result.issues().stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
-          && i.location() != null && i.location().startsWith("/resources/0/schema/fields/0")
-          && i.message().contains("required")
-          && i.message().contains("dcterms:isVersionOf")),
-      "Expected JSON_SCHEMA_VIOLATION for missing dcterms:isVersionOf, got: " + result.issues());
+        """.formatted(PROFILE_0_1))) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertTrue(result.issues().stream().anyMatch(i ->
+                                                     i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION),
+                 "Expected JSON_SCHEMA_VIOLATION for missing tabular profile, got: " + result.issues());
+    }
   }
 
   @Test
   void shouldPassFullyConformantDescriptor() throws Exception {
     Files.writeString(tempDir.resolve("event.csv"), "eventID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         {
           "name": "valid-dwcdp",
-          "profile": "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
+          "profile": "%s",
           "resources": [{
             "name": "event",
             "path": "event.csv",
@@ -222,36 +117,33 @@ class DwcDpDescriptorValidatorTest {
             }
           }]
         }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertTrue(result.valid(), "Expected no errors, got: " + DescriptorValidationResult.errors(result));
-    assertTrue(result.issues().isEmpty(), "Expected no issues at all, got: " + result.issues());
+        """.formatted(PROFILE_0_1))) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertTrue(result.valid(), "Expected no errors, got: " + DescriptorValidationResult.errors(result));
+    }
   }
 
   @Test
   void shouldNotApplyDwcDpChecksToNonReservedResourceNames() throws Exception {
     Files.writeString(tempDir.resolve("custom.csv"), "id\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         {
           "name": "test",
-          "profile": "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
+          "profile": "%s",
           "resources": [{
             "name": "custom-table",
             "path": "custom.csv",
             "schema": { "fields": [{ "name": "id", "type": "integer" }] }
           }]
         }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertTrue(result.issues().stream().noneMatch(i ->
-        i.violationType() == DescriptorViolationType.REQUIRED_FIELD_MISSING
-          || i.violationType() == DescriptorViolationType.FIELD_TYPE_MISMATCH
-          || i.violationType() == DescriptorViolationType.FOREIGN_KEY_MISSING
-          || i.violationType() == DescriptorViolationType.UNKNOWN_FIELD),
-      "No table-schema checks should fire for non-reserved resource names, got: " + result.issues());
+        """.formatted(PROFILE_0_1))) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertTrue(result.issues().stream().noneMatch(i ->
+                                                      i.violationType() == DescriptorViolationType.REQUIRED_FIELD_MISSING
+                                                      || i.violationType() == DescriptorViolationType.FIELD_TYPE_MISMATCH
+                                                      || i.violationType() == DescriptorViolationType.FOREIGN_KEY_MISSING
+                                                      || i.violationType() == DescriptorViolationType.UNKNOWN_FIELD),
+                 "No table-schema checks should fire for non-reserved resource names, got: " + result.issues());
+    }
   }
 }

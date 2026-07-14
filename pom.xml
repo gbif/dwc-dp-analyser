@@ -9,7 +9,7 @@
   </parent>
 
   <artifactId>dwc-dp-analyser</artifactId>
-  <version>0.0.7-SNAPSHOT</version>
+  <version>0.0.8-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>dwc-dp-analyser</name>
@@ -45,6 +45,7 @@
     <module>dwc-dp-analyser-lib</module>
     <module>dwc-dp-analyser-cli</module>
     <module>dwc-dp-descriptor</module>
+    <module>dwc-dp-common</module>
   </modules>
 
   <properties>
@@ -61,7 +62,7 @@
     <logback.version>1.5.32</logback.version>
     <junit.version>5.11.4</junit.version>
     <networknt.version>2.0.1</networknt.version>
-    <dwc-dp-schemas.version>0.0.1</dwc-dp-schemas.version>
+    <dwc-dp-schemas.version>0.0.2-SNAPSHOT</dwc-dp-schemas.version>
   </properties>
 
   <repositories>

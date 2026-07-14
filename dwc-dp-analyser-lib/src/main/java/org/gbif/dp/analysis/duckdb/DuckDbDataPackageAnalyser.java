@@ -21,12 +21,13 @@ import org.gbif.dp.analysis.api.ForeignKeyViolation;
 import org.gbif.dp.analysis.api.PrimaryKeyViolation;
 import org.gbif.dp.analysis.api.ResourceAnalysisResult;
 import org.gbif.dp.analysis.api.ValidationOptions;
+import org.gbif.dp.common.io.DataPackageSource;
+import org.gbif.dp.common.io.DataPackageSources;
 import org.gbif.dp.descriptor.*;
 import org.gbif.dp.duckdb.DuckDbConfig;
 import org.gbif.dp.duckdb.DuckDbConfigBuilder;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.sql.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -93,18 +94,19 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
 
   @Override
   public List<ResourceAnalysisResult> analyse(
-    Path descriptorPath, ValidationOptions options, List<AnalysisFeature> features)
+    String descriptorLocation, ValidationOptions options, List<AnalysisFeature> features)
     throws IOException, SQLException {
 
-    DataPackageDescriptor descriptor = parser.parse(descriptorPath);
+    try (DataPackageSource source = DataPackageSources.open(descriptorLocation);
+         Connection connection = DriverManager.getConnection(config.jdbcUrl())) {
 
-    try (Connection connection = DriverManager.getConnection(config.jdbcUrl())) {
+      DataPackageDescriptor descriptor = parser.parse(source.readDescriptor());
       applyConfig(connection);
 
       for (ResourceDescriptor resource : descriptor.resources()) {
         log.debug("Creating temp table for {} -> {}", resource.name(), resource.paths());
         resourceLoader.createResourceTempTable(
-          connection, resource.name(), resource.paths(), resource.dialect());
+          connection, source, resource.name(), resource.paths(), resource.dialect());
       }
 
       log.debug("Running data analysis for: [{}]", descriptor.name());
@@ -168,7 +170,7 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
     }
     if (features.contains(AnalysisFeature.COUNT)
       || features.contains(AnalysisFeature.COUNT_DISTINCT)) {
-      for (FieldDescriptor field : resource.fields()) {
+      for (FieldDescriptor field : resource.schema().fields()) {
         columnStats.add(analyseColumn(connection, field, resource));
       }
     }
@@ -189,11 +191,11 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
   private PrimaryKeyViolation findPrimaryKeyViolation(
     ValidationOptions options, ResourceDescriptor resource, Connection connection)
     throws SQLException {
-    if (resource.primaryKey() == null) {
+    if (resource.schema().primaryKey() == null) {
       return null;
     }
 
-    String keyFields = resource.primaryKey().keys().stream()
+    String keyFields = resource.schema().primaryKey().keys().stream()
       .map(DuckDbRenderUtils::q).collect(Collectors.joining(", "));
     String violationSql = "SELECT COUNT(*), " + keyFields
       + " FROM " + q(resource.name())
@@ -213,7 +215,7 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
     List<Map<String, Object>> samples =
       fetchSampleRows(connection, violationSql + " LIMIT " + options.sampleSize());
 
-    return new PrimaryKeyViolation(resource.name(), resource.primaryKey().keys(), count, samples);
+    return new PrimaryKeyViolation(resource.name(), resource.schema().primaryKey().keys(), count, samples);
   }
 
   private List<ForeignKeyViolation> findForeignKeyViolations(
@@ -221,7 +223,7 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
     Connection connection, DataPackageDescriptor descriptor) throws SQLException {
     List<ForeignKeyViolation> violations = new ArrayList<>();
 
-    for (ForeignKeyDescriptor key : resource.foreignKeys()) {
+    for (ForeignKeyDescriptor key : resource.schema().foreignKeys()) {
       log.debug("Checking FK {}[{}] -> {}[{}]", resource.name(),
         String.join(",", key.fields()),
         key.reference().resource(), String.join(",", key.reference().fields()));

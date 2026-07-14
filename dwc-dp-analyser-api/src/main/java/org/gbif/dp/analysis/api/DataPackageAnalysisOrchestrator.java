@@ -14,7 +14,6 @@
 package org.gbif.dp.analysis.api;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.List;
 
@@ -38,16 +37,18 @@ import java.util.List;
 public interface DataPackageAnalysisOrchestrator {
 
   /**
-   * Run a full analysis of the DwC-DP at {@code descriptorPath}.
+   * Run a full analysis of the DwC-DP at {@code descriptorLocation}.
    *
-   * @param descriptorPath path to {@code datapackage.json}
+   * @param descriptorLocation identifies where {@code datapackage.json} lives; interpretation
+   *                           (local path, HDFS URI, staged temp location, etc.) is entirely
+   *                           up to the implementation
    * @param options        analysis options (sample size for violation examples)
    * @param features       which features to run; pass {@link AnalysisFeature#ALL_FEATURES}
    *                       for a complete report
    * @return aggregated result covering descriptor, EML, and per-resource data analysis
    */
   DatapackageAnalysisResult analyse(
-    Path descriptorPath,
+    String descriptorLocation,
     ValidationOptions options,
     List<AnalysisFeature> features) throws IOException, SQLException;
 }

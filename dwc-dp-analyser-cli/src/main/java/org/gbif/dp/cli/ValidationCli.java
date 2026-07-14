@@ -25,12 +25,11 @@ import org.gbif.dp.analysis.api.ValidationOptions;
 import org.gbif.dp.analysis.duckdb.DuckDbDataPackageAnalyser;
 import org.gbif.dp.analysis.duckdb.DuckDbDialectRenderer;
 import org.gbif.dp.analysis.duckdb.DuckDbResourceLoader;
-import org.gbif.dp.descriptor.JacksonDataPackageParser;
+import org.gbif.dp.common.descriptor.JacksonDataPackageParser;
 import org.gbif.dp.duckdb.CustomDuckDbConfig;
 import org.gbif.dp.validator.api.DescriptorValidationResult;
 import org.gbif.dp.validator.api.ValidationIssue;
 
-import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -93,7 +92,7 @@ public class ValidationCli {
         duckDbConfig));
 
     DatapackageAnalysisResult result = orchestrator.analyse(
-      Path.of(config.descriptorPath),
+      config.descriptorPath,
       ValidationOptions.defaults(),
       AnalysisFeature.ALL_FEATURES);
 
@@ -141,11 +140,12 @@ public class ValidationCli {
       result = new DatapackageAnalysisResult(result.descriptorValidation(), result.emlValidation(), onlyValidation);
     }
     output.put("result", result);
+    output.put("report-mode", mode.name());
     System.out.println(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(output));
   }
 
   private static void printText(DatapackageAnalysisResult result, Duration duration, Config.ReportMode mode) {
-    // ── Descriptor issues ─────────────────────────────────────────────────
+    System.out.println("Printing " + mode.name() + " report..");
     var descriptor = result.descriptorValidation();
     if (!descriptor.canProceedToDataAnalysis()) {
       System.out.println("Data analysis skipped due to blocking descriptor errors.");

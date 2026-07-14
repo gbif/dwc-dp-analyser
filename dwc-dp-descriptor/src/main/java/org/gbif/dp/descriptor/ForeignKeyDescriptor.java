@@ -15,4 +15,33 @@ package org.gbif.dp.descriptor;
 
 import java.util.List;
 
-public record ForeignKeyDescriptor(List<String> fields, ReferenceDescriptor reference) {}
+/**
+ * A foreign key declaration. Used for both {@code foreignKeys} (enforced when the referring
+ * field is required — {@code reference.resource} is the sibling resource's {@code name},
+ * per the DwC-DP guide, never a separate "schema name") and {@code weakForeignKeys}
+ * (advisory / not-yet-ratified extension) — both share this exact shape.
+ */
+public record ForeignKeyDescriptor(List<String> fields, ReferenceDescriptor reference, String predicate) {
+
+  public ForeignKeyDescriptor(List<String> fields, ReferenceDescriptor reference) {
+    this(fields, reference, null);
+  }
+
+  public static Builder builder() {
+    return new Builder();
+  }
+
+  public static final class Builder {
+    private List<String> fields = List.of();
+    private ReferenceDescriptor reference;
+    private String predicate;
+
+    public Builder fields(List<String> v)           { this.fields = v == null ? List.of() : List.copyOf(v); return this; }
+    public Builder reference(ReferenceDescriptor v)  { this.reference = v; return this; }
+    public Builder predicate(String v)               { this.predicate = v; return this; }
+
+    public ForeignKeyDescriptor build() {
+      return new ForeignKeyDescriptor(fields, reference, predicate);
+    }
+  }
+}

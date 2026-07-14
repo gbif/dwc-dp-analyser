@@ -18,6 +18,8 @@ import org.gbif.dp.analysis.api.DataAnalyser;
 import org.gbif.dp.analysis.api.DataPackageAnalysisOrchestrator;
 import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
 import org.gbif.dp.analysis.api.ValidationOptions;
+import org.gbif.dp.common.io.DataPackageSource;
+import org.gbif.dp.common.io.DataPackageSources;
 import org.gbif.dp.validator.api.DescriptorValidationResult;
 import org.gbif.dp.validator.api.EmlValidationResult;
 import org.gbif.dp.validator.dwcdp.DwcDpDescriptorValidator;
@@ -25,7 +27,6 @@ import org.gbif.dp.validator.eml.EmlValidator;
 import org.gbif.dp.validator.frictionless.DescriptorValidator;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.List;
 
@@ -74,36 +75,37 @@ public class DefaultDataPackageAnalysisOrchestrator implements DataPackageAnalys
 
   @Override
   public DatapackageAnalysisResult analyse(
-    Path descriptorPath, ValidationOptions options, List<AnalysisFeature> features)
+    String descriptorLocation, ValidationOptions options, List<AnalysisFeature> features)
     throws IOException, SQLException {
 
-    // ── 1. Descriptor validation ──────────────────────────────────────────
     DescriptorValidationResult descriptorResult = DescriptorValidationResult.ok();
-    if (features.contains(AnalysisFeature.DESCRIPTOR_VALIDATION)) {
-      log.debug("Validating descriptor: {}", descriptorPath);
-      descriptorResult = descriptorValidator.validate(descriptorPath);
+    EmlValidationResult emlResult = EmlValidationResult.absent();
 
-      if (!descriptorResult.canProceedToDataAnalysis()) {
-        log.warn("Descriptor validation blocked data analysis — {} blocking error(s)",
-          DescriptorValidationResult.errors(descriptorResult).size());
-        EmlValidationResult emlResult = runEmlValidation(descriptorPath, features);
-        return new DatapackageAnalysisResult(descriptorResult, emlResult, List.of());
+    try (DataPackageSource source = DataPackageSources.open(descriptorLocation)) {
+      if (features.contains(AnalysisFeature.DESCRIPTOR_VALIDATION)) {
+        log.debug("Validating descriptor: {}", descriptorLocation);
+        descriptorResult = descriptorValidator.validate(source);
+
+        if (!descriptorResult.canProceedToDataAnalysis()) {
+          log.warn("Descriptor validation blocked data analysis — {} blocking error(s)",
+                   DescriptorValidationResult.errors(descriptorResult).size());
+          emlResult = runEmlValidation(source, features);
+          return new DatapackageAnalysisResult(descriptorResult, emlResult, List.of());
+        }
       }
+
+      emlResult = runEmlValidation(source, features);
     }
 
-    // ── 2. EML validation ─────────────────────────────────────────────────
-    EmlValidationResult emlResult = runEmlValidation(descriptorPath, features);
-
-    // ── 3. Data analysis ──────────────────────────────────────────────────
-    log.debug("Starting data analysis: {}", descriptorPath);
-    var resourceResults = dataAnalyser.analyse(descriptorPath, options, features);
+    log.debug("Starting data analysis: {}", descriptorLocation);
+    var resourceResults = dataAnalyser.analyse(descriptorLocation, options, features);
 
     return new DatapackageAnalysisResult(descriptorResult, emlResult, resourceResults);
   }
 
-  private EmlValidationResult runEmlValidation(Path descriptorPath, List<AnalysisFeature> features) {
+  private EmlValidationResult runEmlValidation(DataPackageSource source, List<AnalysisFeature> features) {
     if (features.contains(AnalysisFeature.EML_VALIDATION)) {
-      return emlValidator.validate(descriptorPath);
+      return emlValidator.validate(source);
     }
     return EmlValidationResult.absent();
   }

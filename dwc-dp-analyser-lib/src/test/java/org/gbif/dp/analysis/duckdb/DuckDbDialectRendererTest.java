@@ -15,7 +15,6 @@ package org.gbif.dp.analysis.duckdb;
 
 import org.gbif.dp.descriptor.DialectDescriptor;
 
-import java.nio.file.Path;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -78,7 +77,7 @@ class DuckDbDialectRendererTest {
   @Test
   void parquetShouldNotProduceCsvArgs() {
     String query = renderer.buildReadQuery(
-      List.of(Path.of("/data/file.parquet")), DialectDescriptor.defaults());
+      List.of("/data/file.parquet"), DialectDescriptor.defaults());
     assertTrue(query.startsWith("read_parquet("));
     assertFalse(query.contains("read_csv_auto"));
   }
@@ -86,7 +85,7 @@ class DuckDbDialectRendererTest {
   @Test
   void csvShouldProduceReadCsvAutoQuery() {
     String query = renderer.buildReadQuery(
-      List.of(Path.of("/data/file.csv")), DialectDescriptor.defaults());
+      List.of("/data/file.csv"), DialectDescriptor.defaults());
     assertTrue(query.startsWith("read_csv_auto("));
   }
 }

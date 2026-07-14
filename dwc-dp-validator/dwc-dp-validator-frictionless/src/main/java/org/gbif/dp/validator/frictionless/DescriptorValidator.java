@@ -13,20 +13,18 @@
  */
 package org.gbif.dp.validator.frictionless;
 
+import org.gbif.dp.common.io.DataPackageSource;
 import org.gbif.dp.validator.api.DescriptorValidationResult;
 
-import java.nio.file.Path;
-
-/**
- * Validates the structural conformance of a datapackage.json descriptor.
- */
+/** Validates the structural conformance of a datapackage.json descriptor. */
 public interface DescriptorValidator {
 
   /**
-   * Validate the descriptor at the given path.
+   * Validate the descriptor exposed by {@code source}.
    *
-   * @param descriptorPath path to datapackage.json
+   * @param source abstraction over where the descriptor and its resource files live —
+   *               local filesystem, HDFS, or any other backend
    * @return result containing all issues found and whether data analysis can proceed
    */
-  DescriptorValidationResult validate(Path descriptorPath);
+  DescriptorValidationResult validate(DataPackageSource source);
 }

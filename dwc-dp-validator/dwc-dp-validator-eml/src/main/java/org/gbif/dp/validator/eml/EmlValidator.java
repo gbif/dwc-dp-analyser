@@ -13,13 +13,15 @@
  */
 package org.gbif.dp.validator.eml;
 
+import org.gbif.dp.common.io.DataPackageSource;
+import org.gbif.dp.common.io.ResourceResult;
 import org.gbif.dp.validator.api.DescriptorViolationType;
 import org.gbif.dp.validator.api.EmlValidationResult;
 import org.gbif.dp.validator.api.ValidationIssue;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -47,20 +49,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Validates the {@code eml.xml} metadata file that may accompany a DwC-DP.
  *
- * <p>Per the DwC-DP spec eml.xml is optional (MAY). Absence is not an error.
- * When present, checks run in order:
- * <ol>
- *   <li>Well-formed XML</li>
- *   <li>Required dataset elements present: title, creator</li>
- *   <li>XSD validation against the bundled EML 2.2.0 schema</li>
- * </ol>
+ * <p>Per the DwC-DP spec eml.xml is optional (MAY). Absence is not an error. When present,
+ * checks run in order: well-formed XML, required elements (title, creator), XSD conformance.
  *
- * <p>Locations use JSON Pointer-style notation adapted for XML
- * (e.g. {@code /dataset/title}).
- *
- * <p>The EML XSD {@link Schema} object is loaded once at class initialisation and
- * reused across all validate calls. {@link Schema} is thread-safe for concurrent
- * {@link Validator} creation per the JAXP spec.
+ * <p>{@code eml.xml} is read once via {@link DataPackageSource#openResource(String)} into a
+ * byte array, then reused for both the well-formedness parse and XSD validation — avoiding
+ * two separate backend round trips for the same file.
  */
 public class EmlValidator {
 
@@ -90,7 +84,7 @@ public class EmlValidator {
       try (InputStream is = EmlValidator.class.getResourceAsStream(EML_SCHEMA_CLASSPATH)) {
         if (is == null) {
           log.warn("Bundled EML 2.2.0 schema not found at classpath:{}. "
-            + "XSD validation will be skipped.", EML_SCHEMA_CLASSPATH);
+                   + "XSD validation will be skipped.", EML_SCHEMA_CLASSPATH);
           return null;
         }
         Schema schema = factory.newSchema(new StreamSource(is, EML_SCHEMA_CLASSPATH));
@@ -99,14 +93,11 @@ public class EmlValidator {
       }
     } catch (Exception e) {
       log.warn("Failed to load bundled EML schema — XSD validation will be skipped: {}",
-        e.getMessage());
+               e.getMessage());
       return null;
     }
   }
 
-  /**
-   * Minimal LSInput implementation for classpath-resolved XSD imports.
-   */
   private static final class ClasspathLSInput implements org.w3c.dom.ls.LSInput {
     private final String systemId;
     private InputStream byteStream;
@@ -116,92 +107,59 @@ public class EmlValidator {
       this.byteStream = byteStream;
     }
 
-    @Override
-    public InputStream getByteStream() {
-      return byteStream;
-    }
-
-    @Override
-    public void setByteStream(InputStream s) {
-      this.byteStream = s;
-    }
-
-    @Override
-    public String getSystemId() {
-      return systemId;
-    }
-
-    @Override
-    public void setSystemId(String s) {
-    }
-
-    @Override
-    public String getBaseURI() {
-      return null;
-    }
-
-    @Override
-    public void setBaseURI(String s) {
-    }
-
-    @Override
-    public String getPublicId() {
-      return null;
-    }
-
-    @Override
-    public void setPublicId(String s) {
-    }
-
-    @Override
-    public java.io.Reader getCharacterStream() {
-      return null;
-    }
-
-    @Override
-    public void setCharacterStream(java.io.Reader r) {
-    }
-
-    @Override
-    public String getStringData() {
-      return null;
-    }
-
-    @Override
-    public void setStringData(String s) {
-    }
-
-    @Override
-    public String getEncoding() {
-      return null;
-    }
-
-    @Override
-    public void setEncoding(String s) {
-    }
-
-    @Override
-    public boolean getCertifiedText() {
-      return false;
-    }
-
-    @Override
-    public void setCertifiedText(boolean b) {
-    }
+    @Override public InputStream getByteStream() { return byteStream; }
+    @Override public void setByteStream(InputStream s) { this.byteStream = s; }
+    @Override public String getSystemId() { return systemId; }
+    @Override public void setSystemId(String s) {}
+    @Override public String getBaseURI() { return null; }
+    @Override public void setBaseURI(String s) {}
+    @Override public String getPublicId() { return null; }
+    @Override public void setPublicId(String s) {}
+    @Override public java.io.Reader getCharacterStream() { return null; }
+    @Override public void setCharacterStream(java.io.Reader r) {}
+    @Override public String getStringData() { return null; }
+    @Override public void setStringData(String s) {}
+    @Override public String getEncoding() { return null; }
+    @Override public void setEncoding(String s) {}
+    @Override public boolean getCertifiedText() { return false; }
+    @Override public void setCertifiedText(boolean b) {}
   }
 
-  public EmlValidationResult validate(Path descriptorPath) {
-    Path emlPath = descriptorPath.getParent().resolve(EML_FILENAME);
+  /**
+   * Validate {@code eml.xml} as exposed by {@code source}.
+   *
+   * <p>If the resource cannot be opened due to a backend error (not simply absent), it is
+   * currently treated the same as absent — eml.xml being optional means we don't want a
+   * transient read failure to register as a validation ERROR. This is a judgment call:
+   * a persistent permissions/connectivity problem on a remote source would be silently
+   * indistinguishable from "no EML provided." Flagging this rather than deciding it quietly —
+   * happy to add a distinct issue type for the FAILED case if that ambiguity matters to you.
+   */
+  public EmlValidationResult validate(DataPackageSource source) {
+    ResourceResult result = source.openResource(EML_FILENAME);
 
-    if (!Files.exists(emlPath)) {
-      log.debug("No eml.xml found alongside {}", descriptorPath);
+    if (result.kind() == ResourceResult.Kind.MISSING) {
+      log.debug("No {} found", EML_FILENAME);
+      return EmlValidationResult.absent();
+    }
+    if (result.kind() == ResourceResult.Kind.FAILED) {
+      ResourceResult.Failed failed = (ResourceResult.Failed) result;
+      log.warn("Could not open {}: {}", EML_FILENAME, failed.cause().getMessage());
       return EmlValidationResult.absent();
     }
 
-    log.debug("Validating EML: {}", emlPath);
+    byte[] emlBytes;
+    try (ResourceResult.Found found = (ResourceResult.Found) result) {
+      emlBytes = found.stream().readAllBytes();
+    } catch (IOException e) {
+      log.warn("Could not read {}: {}", EML_FILENAME, e.getMessage());
+      return EmlValidationResult.absent();
+    }
+
+    log.debug("Validating EML ({} bytes)", emlBytes.length);
     List<ValidationIssue> issues = new ArrayList<>();
 
-    Document doc = parseXml(emlPath, issues);
+    Document doc = parseXml(emlBytes, issues);
     if (doc == null) {
       return EmlValidationResult.of(issues);
     }
@@ -209,27 +167,27 @@ public class EmlValidator {
     checkRequiredElement(doc, "title", "/dataset/title", issues);
     checkRequiredElement(doc, "creator", "/dataset/creator", issues);
 
-    validateXsd(emlPath, issues);
+    validateXsd(emlBytes, issues);
 
     return EmlValidationResult.of(issues);
   }
 
-  private Document parseXml(Path emlPath, List<ValidationIssue> issues) {
+  private Document parseXml(byte[] emlBytes, List<ValidationIssue> issues) {
     try {
       DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
       factory.setNamespaceAware(true);
       factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
       DocumentBuilder builder = factory.newDocumentBuilder();
       builder.setErrorHandler(new DefaultHandler());
-      return builder.parse(emlPath.toFile());
+      return builder.parse(new ByteArrayInputStream(emlBytes));
     } catch (SAXParseException e) {
       issues.add(issue(
         DescriptorViolationType.INVALID_XML,
         "eml.xml is not well-formed XML: " + e.getMessage(),
         null,
         detail("parseError", e.getMessage(),
-          "line", String.valueOf(e.getLineNumber()),
-          "column", String.valueOf(e.getColumnNumber()))));
+               "line", String.valueOf(e.getLineNumber()),
+               "column", String.valueOf(e.getColumnNumber()))));
       return null;
     } catch (Exception e) {
       issues.add(issue(
@@ -253,16 +211,15 @@ public class EmlValidator {
 
     if (nodes.getLength() == 0 || nodes.item(0).getTextContent().isBlank()) {
       issues.add(issue(type,
-        "EML file is missing a required <" + localName + "> element or it is empty.",
-        location,
-        detail("element", localName)));
+                       "EML file is missing a required <" + localName + "> element or it is empty.",
+                       location,
+                       detail("element", localName)));
     }
   }
 
-  private record XsdError(int line, int column, boolean fatal, String message) {
-  }
+  private record XsdError(int line, int column, boolean fatal, String message) {}
 
-  private void validateXsd(Path emlPath, List<ValidationIssue> issues) {
+  private void validateXsd(byte[] emlBytes, List<ValidationIssue> issues) {
     if (EML_SCHEMA == null) {
       issues.add(issue(
         DescriptorViolationType.EML_XSD_UNAVAILABLE,
@@ -286,20 +243,18 @@ public class EmlValidator {
         }
       });
 
-      try (InputStream is = Files.newInputStream(emlPath)) {
-        validator.validate(new StreamSource(is));
-      }
+      validator.validate(new StreamSource(new ByteArrayInputStream(emlBytes)));
 
       for (XsdError xsdError : xsdErrors) {
         issues.add(issue(
           DescriptorViolationType.EML_XSD_VIOLATION,
           (xsdError.fatal() ? "Fatal XSD error" : "XSD error")
-            + " at line " + xsdError.line() + ": " + xsdError.message(),
+          + " at line " + xsdError.line() + ": " + xsdError.message(),
           null,
           detail("message", xsdError.message(),
-            "line", String.valueOf(xsdError.line()),
-            "column", String.valueOf(xsdError.column()),
-            "fatal", String.valueOf(xsdError.fatal()))));
+                 "line", String.valueOf(xsdError.line()),
+                 "column", String.valueOf(xsdError.column()),
+                 "fatal", String.valueOf(xsdError.fatal()))));
       }
     } catch (SAXException e) {
       issues.add(issue(

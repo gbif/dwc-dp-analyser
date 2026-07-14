@@ -13,9 +13,11 @@
  */
 package org.gbif.dp.validator.frictionless;
 
+import org.gbif.dp.common.io.FileSystemDataPackageSource;
 import org.gbif.dp.validator.api.DescriptorValidationResult;
 import org.gbif.dp.validator.api.ValidationIssue;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -30,83 +32,99 @@ class FrictionlessDescriptorValidatorTest {
 
   @TempDir Path tempDir;
 
+  private FileSystemDataPackageSource source(String descriptorJson) throws IOException {
+    Files.writeString(tempDir.resolve("datapackage.json"), descriptorJson);
+    return new FileSystemDataPackageSource(tempDir.resolve("datapackage.json"));
+  }
+
   @Test
   void shouldErrorWhenFileNotFound() {
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("missing.json"));
-
-    assertFalse(result.valid());
-    assertFalse(result.canProceedToDataAnalysis());
-    assertTrue(hasCode(result, "DESCRIPTOR_NOT_FOUND"));
+    // no datapackage.json written — descriptor path still points at the tempDir
+    try (var src = new FileSystemDataPackageSource(tempDir.resolve("missing.json"))) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertFalse(result.valid());
+      assertFalse(result.canProceedToDataAnalysis());
+      assertTrue(hasCode(result, "DESCRIPTOR_NOT_FOUND"));
+    }
   }
 
   @Test
   void shouldErrorOnInvalidJson() throws Exception {
-    Files.writeString(tempDir.resolve("datapackage.json"), "{ not valid json }");
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertFalse(result.valid());
-    assertFalse(result.canProceedToDataAnalysis());
-    assertTrue(hasCode(result, "INVALID_JSON"));
+    try (var src = source("{ not valid json }")) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertFalse(result.valid());
+      assertFalse(result.canProceedToDataAnalysis());
+      assertTrue(hasCode(result, "INVALID_JSON"));
+    }
   }
 
   @Test
   void shouldErrorWhenResourcesArrayMissing() throws Exception {
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         { "name": "test" }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertFalse(result.canProceedToDataAnalysis());
-    assertTrue(hasCode(result, "MISSING_RESOURCES"));
+        """)) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertFalse(result.canProceedToDataAnalysis());
+      assertTrue(hasCode(result, "MISSING_RESOURCES"));
+    }
   }
 
   @Test
   void shouldErrorWhenResourcesArrayEmpty() throws Exception {
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         { "name": "test", "resources": [] }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertFalse(result.canProceedToDataAnalysis());
-    assertTrue(hasCode(result, "MISSING_RESOURCES"));
+        """)) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertFalse(result.canProceedToDataAnalysis());
+      assertTrue(hasCode(result, "MISSING_RESOURCES"));
+    }
   }
 
   @Test
   void shouldWarnWhenNameMissing() throws Exception {
     Files.writeString(tempDir.resolve("data.csv"), "id\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         { "resources": [{ "name": "data", "path": "data.csv" }] }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertTrue(result.canProceedToDataAnalysis());
-    assertTrue(hasCode(result, "MISSING_NAME"));
-    assertEquals(ValidationIssue.Severity.WARNING, severityOf(result, "MISSING_NAME"));
+        """)) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertTrue(result.canProceedToDataAnalysis());
+      assertTrue(hasCode(result, "MISSING_NAME"));
+      assertEquals(ValidationIssue.Severity.WARNING, severityOf(result, "MISSING_NAME"));
+    }
   }
 
   @Test
   void shouldErrorWhenResourcePathMissing() throws Exception {
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         {
           "name": "test",
           "resources": [{ "name": "data", "path": "nonexistent.csv" }]
         }
-        """);
+        """)) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertFalse(result.valid());
+      assertTrue(hasCode(result, "PATH_NOT_FOUND"));
+    }
+  }
 
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertFalse(result.valid());
-    assertTrue(hasCode(result, "PATH_NOT_FOUND"));
+  @Test
+  void shouldErrorOnPathTraversal() throws Exception {
+    try (var src = source("""
+        {
+          "name": "test",
+          "resources": [{ "name": "data", "path": "../../etc/passwd" }]
+        }
+        """)) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertFalse(result.valid());
+      assertTrue(hasCode(result, "PATH_NOT_FOUND"));
+    }
   }
 
   @Test
   void shouldWarnOnUnknownFieldType() throws Exception {
     Files.writeString(tempDir.resolve("data.csv"), "id\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         {
           "name": "test",
           "resources": [{
@@ -115,18 +133,17 @@ class FrictionlessDescriptorValidatorTest {
             "schema": { "fields": [{ "name": "id", "type": "uuid" }] }
           }]
         }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertTrue(result.canProceedToDataAnalysis());
-    assertTrue(hasCode(result, "UNKNOWN_FIELD_TYPE"));
+        """)) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertTrue(result.canProceedToDataAnalysis());
+      assertTrue(hasCode(result, "UNKNOWN_FIELD_TYPE"));
+    }
   }
 
   @Test
   void shouldWarnOnFkReferenceToUnknownResource() throws Exception {
     Files.writeString(tempDir.resolve("data.csv"), "id\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         {
           "name": "test",
           "resources": [{
@@ -140,18 +157,17 @@ class FrictionlessDescriptorValidatorTest {
             }
           }]
         }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertTrue(result.canProceedToDataAnalysis());
-    assertTrue(hasCode(result, "FK_UNKNOWN_REFERENCE_RESOURCE"));
+        """)) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertTrue(result.canProceedToDataAnalysis());
+      assertTrue(hasCode(result, "FK_UNKNOWN_REFERENCE_RESOURCE"));
+    }
   }
 
   @Test
   void shouldPassCleanDescriptor() throws Exception {
     Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,3.14\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+    try (var src = source("""
         {
           "name": "clean",
           "resources": [{
@@ -165,16 +181,13 @@ class FrictionlessDescriptorValidatorTest {
             }
           }]
         }
-        """);
-
-    DescriptorValidationResult result = validator.validate(tempDir.resolve("datapackage.json"));
-
-    assertTrue(result.valid());
-    assertTrue(result.canProceedToDataAnalysis());
-    assertTrue(result.issues().isEmpty());
+        """)) {
+      DescriptorValidationResult result = validator.validate(src);
+      assertTrue(result.valid());
+      assertTrue(result.canProceedToDataAnalysis());
+      assertTrue(result.issues().isEmpty());
+    }
   }
-
-  // ── helpers ───────────────────────────────────────────────────────────────
 
   private boolean hasCode(DescriptorValidationResult r, String code) {
     return r.issues().stream().anyMatch(i -> i.code().equals(code));

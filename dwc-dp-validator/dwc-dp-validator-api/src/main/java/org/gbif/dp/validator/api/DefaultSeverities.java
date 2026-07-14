@@ -42,6 +42,7 @@ public final class DefaultSeverities {
       Map.entry(DescriptorViolationType.UNKNOWN_FIELD_TYPE,            ValidationIssue.Severity.WARNING),
 
       // ── DwC-DP JSON Schema (Layer 1) ─────────────────────────────────
+      Map.entry(DescriptorViolationType.UNRECOGNIZED_PROFILE_VERSION, ValidationIssue.Severity.ERROR),
       Map.entry(DescriptorViolationType.JSON_SCHEMA_VIOLATION,   ValidationIssue.Severity.WARNING),
       Map.entry(DescriptorViolationType.JSON_SCHEMA_UNAVAILABLE, ValidationIssue.Severity.INFO),
 

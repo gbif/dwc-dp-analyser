@@ -14,9 +14,12 @@
 package org.gbif.dp.descriptor;
 
 import java.io.IOException;
-import java.nio.file.Path;
 
+/**
+ * Parses a {@code datapackage.json} descriptor's content into a {@link DataPackageDescriptor}.
+ * Framework-agnostic: takes raw text, no filesystem or JSON-library dependency at this level.
+ */
 public interface DataPackageParser {
 
-  DataPackageDescriptor parse(Path descriptorPath) throws IOException;
+  DataPackageDescriptor parse(String descriptorContent) throws IOException;
 }

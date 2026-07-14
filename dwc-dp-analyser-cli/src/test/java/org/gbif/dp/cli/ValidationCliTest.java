@@ -31,115 +31,120 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ValidationCliTest {
 
-    @TempDir Path tempDir;
-    private PrintStream originalOut;
-    private ByteArrayOutputStream capturedOut;
+  private static final String DWC_DP_0_1_PROFILE = "https://rs.tdwg.org/dwc-dp/0.1/dwc-dp-profile.json";
 
-    @BeforeEach
-    void captureStdout() {
-        originalOut = System.out;
-        capturedOut = new ByteArrayOutputStream();
-        System.setOut(new PrintStream(capturedOut));
-    }
+  @TempDir Path tempDir;
+  private PrintStream originalOut;
+  private ByteArrayOutputStream capturedOut;
 
-    @AfterEach
-    void restoreStdout() {
-        System.setOut(originalOut);
-    }
+  @BeforeEach
+  void captureStdout() {
+    originalOut = System.out;
+    capturedOut = new ByteArrayOutputStream();
+    System.setOut(new PrintStream(capturedOut));
+  }
 
-    @Test
-    void shouldExitZeroAndPrintPassedForValidDataset() throws Exception {
-        Path tempDir = setupSmallValidDataset();
+  @AfterEach
+  void restoreStdout() {
+    System.setOut(originalOut);
+  }
 
-        int exitCode = ValidationCli.run(new String[]{ tempDir.resolve("datapackage.json").toString() });
+  @Test
+  void shouldExitZeroAndPrintPassedForValidDataset() throws Exception {
+    Path tempDir = setupSmallValidDataset();
 
-        assertEquals(0, exitCode);
-        assertTrue(capturedOut.toString().contains("All validations passed."));
-    }
+    int exitCode = ValidationCli.run(new String[]{ tempDir.resolve("datapackage.json").toString() });
 
-    @Test
-    void shouldExitTwoForDataTypeViolations() throws Exception {
-        Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,notanumber\n");
-        Files.writeString(tempDir.resolve("datapackage.json"), """
+    assertEquals(0, exitCode);
+    assertTrue(capturedOut.toString().contains("All validations passed."));
+  }
+
+  @Test
+  void shouldExitTwoForDataTypeViolations() throws Exception {
+    Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,notanumber\n");
+    Files.writeString(tempDir.resolve("datapackage.json"), """
             {
               "name": "invalid",
+              "profile": "%s",
               "resources": [{ "name": "data", "path": "data.csv",
                 "schema": { "fields": [
                   { "name": "id",    "type": "integer" },
                   { "name": "score", "type": "number"  }
                 ]}}]
             }
-            """);
+            """.formatted(DWC_DP_0_1_PROFILE));
 
-        int exitCode = ValidationCli.run(new String[]{ tempDir.resolve("datapackage.json").toString() });
+    int exitCode = ValidationCli.run(new String[]{ tempDir.resolve("datapackage.json").toString() });
 
-        assertEquals(2, exitCode);
-        assertTrue(capturedOut.toString().contains("Type violation"));
-    }
+    assertEquals(2, exitCode);
+    assertTrue(capturedOut.toString().contains("Type violation"));
+  }
 
-    @Test
-    void shouldExitOneForMissingArgs() throws Exception {
-        int exitCode = ValidationCli.run(new String[]{});
+  @Test
+  void shouldExitOneForMissingArgs() throws Exception {
+    int exitCode = ValidationCli.run(new String[]{});
 
-        assertEquals(1, exitCode);
-    }
+    assertEquals(1, exitCode);
+  }
 
-    @Test
-    void shouldOutputValidJsonForValidDataset() throws Exception {
-        Path tempDir = setupSmallValidDataset();
+  @Test
+  void shouldOutputValidJsonForValidDataset() throws Exception {
+    Path tempDir = setupSmallValidDataset();
 
-        int exitCode = ValidationCli.run(new String[]{
-                tempDir.resolve("datapackage.json").toString(),
-                "--output-format", "JSON"
-        });
+    int exitCode = ValidationCli.run(new String[]{
+      tempDir.resolve("datapackage.json").toString(),
+      "--output-format", "JSON"
+    });
 
-        assertEquals(0, exitCode);
-        String output = capturedOut.toString();
-        ObjectMapper mapper = new ObjectMapper();
-        JsonNode json = mapper.readTree(output); // throws if not valid JSON
-        assertTrue(json.has("result"));
-        assertTrue(json.has("durationSeconds"));
-        assertTrue(json.has("valid"));
-        assertTrue(json.get("valid").asBoolean());
-    }
+    assertEquals(0, exitCode);
+    String output = capturedOut.toString();
+    ObjectMapper mapper = new ObjectMapper();
+    JsonNode json = mapper.readTree(output); // throws if not valid JSON
+    assertTrue(json.has("result"));
+    assertTrue(json.has("durationSeconds"));
+    assertTrue(json.has("valid"));
+    assertTrue(json.get("valid").asBoolean());
+  }
 
-    @Test
-    void shouldIncludeViolationsInJsonOutput() throws Exception {
-        Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,asd\n");
-        Files.writeString(tempDir.resolve("datapackage.json"), """
+  @Test
+  void shouldIncludeViolationsInJsonOutput() throws Exception {
+    Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,asd\n");
+    Files.writeString(tempDir.resolve("datapackage.json"), """
             {
               "name": "invalid",
+              "profile": "%s",
               "resources": [{ "name": "data", "path": "data.csv",
                 "schema": { "fields": [
                   { "name": "id",    "type": "integer" },
                   { "name": "score", "type": "number"  }
                 ]}}]
             }
-            """);
+            """.formatted(DWC_DP_0_1_PROFILE));
 
-        int exitCode = ValidationCli.run(new String[]{
-                tempDir.resolve("datapackage.json").toString(),
-                "--output-format", "JSON"
-        });
+    int exitCode = ValidationCli.run(new String[]{
+      tempDir.resolve("datapackage.json").toString(),
+      "--output-format", "JSON"
+    });
 
-        assertEquals(2, exitCode);
-        JsonNode json = new ObjectMapper().readTree(capturedOut.toString());
-        assertFalse(json.get("result").path("valid").asBoolean());
-        assertFalse(json.get("result").path("dataTypeViolations").isNull());
-    }
+    assertEquals(2, exitCode);
+    JsonNode json = new ObjectMapper().readTree(capturedOut.toString());
+    assertFalse(json.get("result").path("valid").asBoolean());
+    assertFalse(json.get("result").path("dataTypeViolations").isNull());
+  }
 
-    private Path setupSmallValidDataset() throws IOException {
-        Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,3.14\n2,2.71\n");
-        Files.writeString(tempDir.resolve("datapackage.json"), """
+  private Path setupSmallValidDataset() throws IOException {
+    Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,3.14\n2,2.71\n");
+    Files.writeString(tempDir.resolve("datapackage.json"), """
             {
               "name": "clean",
+              "profile": "%s",
               "resources": [{ "name": "data", "path": "data.csv",
                 "schema": { "fields": [
                   { "name": "id",    "type": "integer" },
                   { "name": "score", "type": "number"  }
                 ]}}]
             }
-            """);
-        return tempDir;
-    }
+            """.formatted(DWC_DP_0_1_PROFILE));
+    return tempDir;
+  }
 }

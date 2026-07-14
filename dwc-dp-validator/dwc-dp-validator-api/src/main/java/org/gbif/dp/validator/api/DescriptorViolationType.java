@@ -54,6 +54,10 @@ public enum DescriptorViolationType {
 
   // ── DwC-DP JSON Schema (Layer 1) ─────────────────────────────────────────
 
+  UNRECOGNIZED_PROFILE_VERSION(
+    "The descriptor's 'profile' does not match any known DwC-DP profile version — "
+    + "JSON Schema and table schema validation were skipped."),
+
   JSON_SCHEMA_VIOLATION(
     "The descriptor does not conform to the DwC-DP JSON Schema profile (dwc-dp-profile.json)."),
 

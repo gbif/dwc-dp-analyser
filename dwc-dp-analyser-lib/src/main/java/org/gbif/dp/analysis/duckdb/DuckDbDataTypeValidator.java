@@ -60,7 +60,7 @@ public class DuckDbDataTypeValidator {
 
     List<DataTypeViolation> violations = new ArrayList<>();
 
-    for (FieldDescriptor field : resource.fields()) {
+    for (FieldDescriptor field : resource.schema().fields()) {
       String duckDbType = FRICTIONLESS_TO_DUCKDB.get(field.type().toLowerCase());
       if (duckDbType == null) {
         // "string" or unsupported custom types — nothing to cast-check

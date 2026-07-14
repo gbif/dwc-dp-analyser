@@ -25,7 +25,8 @@ import org.gbif.dp.analysis.duckdb.DuckDbDataPackageAnalyser;
 import org.gbif.dp.analysis.duckdb.DuckDbDialectRenderer;
 import org.gbif.dp.analysis.duckdb.DuckDbRenderUtils;
 import org.gbif.dp.analysis.duckdb.DuckDbResourceLoader;
-import org.gbif.dp.descriptor.JacksonDataPackageParser;
+import org.gbif.dp.common.descriptor.JacksonDataPackageParser;
+import org.gbif.dp.common.io.DataPackageSource;
 import org.gbif.dp.validator.api.DescriptorValidationResult;
 import org.gbif.dp.validator.api.EmlValidationResult;
 import org.gbif.dp.validator.frictionless.DescriptorValidator;
@@ -43,6 +44,7 @@ import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -53,15 +55,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * so structural validation does not interfere with data analysis assertions.
  *
  * Tests that only need row/column counts use {@link DataAnalyser} directly.
+ *
+ * <p>Descriptor locations are passed as plain strings ({@code descriptorLocation}), matching
+ * the {@code -api} contract — {@code DuckDbDataPackageAnalyser} resolves them to a
+ * {@link DataPackageSource} internally.
  */
 class DuckDbDataPackageAnalyserTest {
 
   private static final DescriptorValidator NO_OP_DESCRIPTOR_VALIDATOR =
-    path -> DescriptorValidationResult.ok();
+    source -> DescriptorValidationResult.ok();
 
   private static final org.gbif.dp.validator.eml.EmlValidator NO_OP_EML_VALIDATOR =
     new org.gbif.dp.validator.eml.EmlValidator() {
-      @Override public EmlValidationResult validate(Path p) { return EmlValidationResult.absent(); }
+      @Override public EmlValidationResult validate(DataPackageSource source) { return EmlValidationResult.absent(); }
     };
 
   @TempDir Path tempDir;
@@ -101,7 +107,7 @@ class DuckDbDataPackageAnalyserTest {
         """);
 
     DatapackageAnalysisResult result = orchestrator.analyse(
-      tempDir.resolve("datapackage.json"), ValidationOptions.defaults(), AnalysisFeature.ALL_FEATURES);
+      descriptorLocation(), ValidationOptions.defaults(), AnalysisFeature.ALL_FEATURES);
 
     assertFalse(DatapackageAnalysisResult.isValid(result));
     assertEquals(1, DatapackageAnalysisResult.foreignKeyViolations(result).size());
@@ -111,7 +117,7 @@ class DuckDbDataPackageAnalyserTest {
   @Test
   void shouldDetectDataTypeViolations() throws Exception {
     Files.writeString(tempDir.resolve("data.csv"),
-      "id,age,active,birth_date\n1,25,true,2000-01-01\n2,notanumber,false,2001-06-15\n3,30,maybe,not-a-date\n");
+                      "id,age,active,birth_date\n1,25,true,2000-01-01\n2,notanumber,false,2001-06-15\n3,30,maybe,not-a-date\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         {
           "name": "typed",
@@ -128,7 +134,7 @@ class DuckDbDataPackageAnalyserTest {
         """);
 
     DatapackageAnalysisResult result = orchestrator.analyse(
-      tempDir.resolve("datapackage.json"), ValidationOptions.defaults(), AnalysisFeature.ALL_FEATURES);
+      descriptorLocation(), ValidationOptions.defaults(), AnalysisFeature.ALL_FEATURES);
 
     assertTrue(DatapackageAnalysisResult.foreignKeyViolations(result).isEmpty());
     assertFalse(DatapackageAnalysisResult.isValid(result));
@@ -152,17 +158,17 @@ class DuckDbDataPackageAnalyserTest {
 
   @Test
   void shouldPassWhenAllTypesAreCorrect() throws Exception {
+    setupSmallValidDataset();
     DatapackageAnalysisResult result = orchestrator.analyse(
-      setupSmallValidDataset().resolve("datapackage.json"),
-      ValidationOptions.defaults(), AnalysisFeature.ALL_FEATURES);
+      descriptorLocation(), ValidationOptions.defaults(), AnalysisFeature.ALL_FEATURES);
     assertTrue(DatapackageAnalysisResult.isValid(result));
   }
 
   @Test
   void shouldHaveCorrectRowAndColumnCounts() throws Exception {
+    setupSmallValidDataset();
     List<ResourceAnalysisResult> results = analyser.analyse(
-      setupSmallValidDataset().resolve("datapackage.json"),
-      ValidationOptions.defaults(),
+      descriptorLocation(), ValidationOptions.defaults(),
       List.of(AnalysisFeature.COUNT, AnalysisFeature.COUNT_DISTINCT));
 
     ResourceAnalysisResult resource = results.stream()
@@ -179,12 +185,12 @@ class DuckDbDataPackageAnalyserTest {
 
   @Test
   void shouldOnlyCalculateChosenFeatures() throws Exception {
+    setupSmallValidDataset();
     List<ResourceAnalysisResult> results = analyser.analyse(
-      setupSmallValidDataset().resolve("datapackage.json"),
-      ValidationOptions.defaults(),
+      descriptorLocation(), ValidationOptions.defaults(),
       List.of(AnalysisFeature.DATA_TYPE_CONSTRAINT));
     assertTrue(results.stream().allMatch(r -> r.columnAnalyses().isEmpty()),
-      "No counting etc for any of the data files");
+               "No counting etc for any of the data files");
   }
 
   @Test
@@ -201,17 +207,19 @@ class DuckDbDataPackageAnalyserTest {
           "resources": [{
             "name": "data",
             "path": "data.csv",
-            "schema": { "fields": [
-              { "name": "id",    "type": "integer", "missingValues": ["-1"] },
-              { "name": "score", "type": "number",  "missingValues": ["-1"] }
-            ]},
-            "primaryKey": "id"
+            "schema": {
+              "fields": [
+                { "name": "id",    "type": "integer", "missingValues": ["-1"] },
+                { "name": "score", "type": "number",  "missingValues": ["-1"] }
+              ],
+              "primaryKey": "id"
+            }
           }]
         }
     """);
 
     List<ResourceAnalysisResult> results = analyser.analyse(
-      tempDir.resolve("datapackage.json"), ValidationOptions.defaults(),
+      descriptorLocation(), ValidationOptions.defaults(),
       List.of(AnalysisFeature.PRIMARY_KEY_UNIQUE));
 
     assertFalse(results.isEmpty());
@@ -225,7 +233,7 @@ class DuckDbDataPackageAnalyserTest {
   void shouldNotReQuoteAlreadyQuoted() {
     String value = "\"field\"";
     assertEquals(value, DuckDbRenderUtils.q(value),
-      "Multiple invocations of quoting should have no effect");
+                 "Multiple invocations of quoting should have no effect");
   }
 
   @Test
@@ -245,7 +253,7 @@ class DuckDbDataPackageAnalyserTest {
         """);
 
     List<ResourceAnalysisResult> results = analyser.analyse(
-      tempDir.resolve("datapackage.json"), ValidationOptions.defaults(),
+      descriptorLocation(), ValidationOptions.defaults(),
       List.of(AnalysisFeature.COUNT, AnalysisFeature.COUNT_DISTINCT));
 
     ColumnStatistics idStats    = getColumnStats(results, "data", "id");
@@ -276,7 +284,7 @@ class DuckDbDataPackageAnalyserTest {
         """);
 
     List<ResourceAnalysisResult> results = analyser.analyse(
-      tempDir.resolve("datapackage.json"), ValidationOptions.defaults(),
+      descriptorLocation(), ValidationOptions.defaults(),
       List.of(AnalysisFeature.COUNT, AnalysisFeature.COUNT_DISTINCT));
 
     ColumnStatistics scoreStats = getColumnStats(results, "data", "score");
@@ -304,7 +312,7 @@ class DuckDbDataPackageAnalyserTest {
         """);
 
     List<ResourceAnalysisResult> results = analyser.analyse(
-      tempDir.resolve("datapackage.json"), ValidationOptions.defaults(),
+      descriptorLocation(), ValidationOptions.defaults(),
       List.of(AnalysisFeature.COUNT, AnalysisFeature.COUNT_DISTINCT));
 
     ColumnStatistics idStats    = getColumnStats(results, "data", "id");
@@ -332,11 +340,11 @@ class DuckDbDataPackageAnalyserTest {
         """);
 
     List<ResourceAnalysisResult> results = analyser.analyse(
-      tempDir.resolve("datapackage.json"), ValidationOptions.defaults(),
+      descriptorLocation(), ValidationOptions.defaults(),
       List.of(AnalysisFeature.COUNT, AnalysisFeature.COUNT_DISTINCT));
 
     assertEquals(2, getColumnStats(results, "data", "score").populatedValues(),
-      "score: empty cell is null, '-1' is a real (if invalid) value");
+                 "score: empty cell is null, '-1' is a real (if invalid) value");
   }
 
   @Test
@@ -349,8 +357,8 @@ class DuckDbDataPackageAnalyserTest {
           "schema": { "fields": [{ "name": "id", "type": "integer" }, { "name": "name", "type": "string" }]}
         }]}
         """);
-    assertEquals(2, analyser.analyse(tempDir.resolve("datapackage.json"),
-      ValidationOptions.defaults(), List.of(AnalysisFeature.COUNT)).get(0).totalRows());
+    assertEquals(2, analyser.analyse(descriptorLocation(),
+                                     ValidationOptions.defaults(), List.of(AnalysisFeature.COUNT)).get(0).totalRows());
   }
 
   @Test
@@ -362,8 +370,8 @@ class DuckDbDataPackageAnalyserTest {
           "schema": { "fields": [{ "name": "id", "type": "integer" }, { "name": "name", "type": "string" }]}
         }]}
         """);
-    assertEquals(2, analyser.analyse(tempDir.resolve("datapackage.json"),
-      ValidationOptions.defaults(), List.of(AnalysisFeature.COUNT)).get(0).totalRows());
+    assertEquals(2, analyser.analyse(descriptorLocation(),
+                                     ValidationOptions.defaults(), List.of(AnalysisFeature.COUNT)).get(0).totalRows());
   }
 
   @Test
@@ -376,8 +384,8 @@ class DuckDbDataPackageAnalyserTest {
           "schema": { "fields": [{ "name": "id", "type": "integer" }, { "name": "name", "type": "string" }]}
         }]}
         """);
-    assertEquals(2, analyser.analyse(tempDir.resolve("datapackage.json"),
-      ValidationOptions.defaults(), List.of(AnalysisFeature.COUNT)).get(0).totalRows());
+    assertEquals(2, analyser.analyse(descriptorLocation(),
+                                     ValidationOptions.defaults(), List.of(AnalysisFeature.COUNT)).get(0).totalRows());
   }
 
   @Test
@@ -390,8 +398,25 @@ class DuckDbDataPackageAnalyserTest {
           "schema": { "fields": [{ "name": "id", "type": "integer" }, { "name": "name", "type": "string" }]}
         }]}
         """);
-    assertEquals(2, analyser.analyse(tempDir.resolve("datapackage.json"),
-      ValidationOptions.defaults(), List.of(AnalysisFeature.COUNT)).get(0).totalRows());
+    assertEquals(2, analyser.analyse(descriptorLocation(),
+                                     ValidationOptions.defaults(), List.of(AnalysisFeature.COUNT)).get(0).totalRows());
+  }
+
+  @Test
+  void shouldFailFastWhenDeclaredResourcePathDoesNotExist() throws Exception {
+    // No data.csv actually written — only the descriptor declares it.
+    Files.writeString(tempDir.resolve("datapackage.json"), """
+        { "name": "missing-resource-test", "resources": [{
+          "name": "data", "path": "data.csv",
+          "schema": { "fields": [{ "name": "id", "type": "integer" }]}
+        }]}
+        """);
+
+    IOException e = assertThrows(IOException.class, () ->
+      analyser.analyse(descriptorLocation(), ValidationOptions.defaults(), List.of(AnalysisFeature.COUNT)));
+
+    assertTrue(e.getMessage().contains("data"), "Message should name the resource");
+    assertTrue(e.getMessage().contains("data.csv"), "Message should name the declared path");
   }
 
   private ColumnStatistics getColumnStats(
@@ -404,7 +429,7 @@ class DuckDbDataPackageAnalyserTest {
       .orElseThrow(() -> new AssertionError("Column not found: " + column));
   }
 
-  private Path setupSmallValidDataset() throws IOException {
+  private void setupSmallValidDataset() throws IOException {
     Files.writeString(tempDir.resolve("data.csv"), "id,score\n1,3.14\n2,2.71\n3,2.71\n");
     Files.writeString(tempDir.resolve("datapackage.json"), """
         {
@@ -418,6 +443,9 @@ class DuckDbDataPackageAnalyserTest {
           }]
         }
         """);
-    return tempDir;
+  }
+
+  private String descriptorLocation() {
+    return tempDir.resolve("datapackage.json").toString();
   }
 }

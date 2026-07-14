@@ -15,7 +15,6 @@ package org.gbif.dp.analysis.duckdb;
 
 import org.gbif.dp.descriptor.DialectDescriptor;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
@@ -57,19 +56,22 @@ public class DuckDbDialectRenderer {
     return DialectDescriptor.fromExtension(filename);
   }
 
-  public String buildReadQuery(List<Path> paths, DialectDescriptor dialect) {
-    String joinedPaths = paths.stream()
-      .map(Path::toAbsolutePath)
-      .map(Object::toString)
+  /**
+   * @param locations resolved, openable locations (already joined against the source's
+   *                  {@code rawLocation()} via {@link org.gbif.dp.common.io.ResourceLocationResolver}) —
+   *                  not raw descriptor-declared paths
+   */
+  public String buildReadQuery(List<String> locations, DialectDescriptor dialect) {
+    String joinedLocations = locations.stream()
       .map(str -> str.replace("'", "''"))
       .map(str -> "'" + str + "'")
       .collect(Collectors.joining(", "));
 
-    String filename = paths.get(0).toAbsolutePath().toString();
+    String filename = locations.get(0);
 
     if (filename.toLowerCase(Locale.ROOT).endsWith(".parquet")) {
-      return "read_parquet([" + joinedPaths + "])";
+      return "read_parquet([" + joinedLocations + "])";
     }
-    return "read_csv_auto([" + joinedPaths + "], " + toReadCsvArgs(dialect, filename) + ")";
+    return "read_csv_auto([" + joinedLocations + "], " + toReadCsvArgs(dialect, filename) + ")";
   }
 }

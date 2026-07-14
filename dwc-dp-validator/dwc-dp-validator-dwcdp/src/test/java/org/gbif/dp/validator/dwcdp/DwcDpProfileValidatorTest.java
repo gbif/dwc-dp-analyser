@@ -16,28 +16,28 @@ package org.gbif.dp.validator.dwcdp;
 import org.gbif.dp.validator.api.DescriptorViolationType;
 import org.gbif.dp.validator.api.ValidationIssue;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * Uses the legacy no-arg constructor, which defaults to the 0.1 profile — see
+ * {@link DwcDpProfileValidator}'s class-level note on why the legacy path still exists.
+ */
 class DwcDpProfileValidatorTest {
+
+  private static final String PROFILE_0_1 = "https://rs.tdwg.org/dwc-dp/0.1/dwc-dp-profile.json";
 
   final DwcDpProfileValidator validator = new DwcDpProfileValidator();
 
-  @TempDir Path tempDir;
-
   @Test
-  void shouldReturnNoIssuesForConformantDescriptor() throws Exception {
-    Files.writeString(tempDir.resolve("event.csv"), "eventID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+  void shouldReturnNoIssuesForConformantDescriptor() {
+    String json = """
         {
           "name": "valid-dwcdp",
-          "profile": "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
+          "profile": "%s",
           "resources": [{
             "name": "event",
             "path": "event.csv",
@@ -55,114 +55,109 @@ class DwcDpProfileValidatorTest {
             }
           }]
         }
-        """);
+        """.formatted(PROFILE_0_1);
 
-    List<ValidationIssue> issues = validator.validate(tempDir.resolve("datapackage.json"));
+    List<ValidationIssue> issues = validator.validate(json);
 
     assertTrue(issues.stream().noneMatch(
-        i -> i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION),
-      "Expected no JSON Schema violations, got: " + issues);
+                 i -> i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION),
+               "Expected no JSON Schema violations, got: " + issues);
   }
 
   @Test
-  void shouldReportViolationWhenProfileMissing() throws Exception {
-    Files.writeString(tempDir.resolve("data.csv"), "id\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+  void shouldReportViolationWhenProfileMissing() {
+    String json = """
         {
           "name": "no-profile",
           "resources": [{ "name": "data", "path": "data.csv" }]
         }
-        """);
+        """;
 
-    List<ValidationIssue> issues = validator.validate(tempDir.resolve("datapackage.json"));
+    List<ValidationIssue> issues = validator.validate(json);
 
     assertTrue(
       issues.stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
-          && ("/".equals(i.location()) || "".equals(i.location()))
-          && i.message().contains("required")
-          && i.message().contains("profile")),
+                                 i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
+                                 && ("/".equals(i.location()) || "".equals(i.location()))
+                                 && i.message().contains("required")
+                                 && i.message().contains("profile")),
       "Expected required 'profile' violation at root, got: " + issues);
   }
 
   @Test
-  void shouldReportViolationWhenRootProfileIsNotAUri() throws Exception {
-    Files.writeString(tempDir.resolve("data.csv"), "id\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+  void shouldReportViolationWhenRootProfileIsNotAUri() {
+    String json = """
         {
           "name": "bad-profile",
           "profile": "not-a-uri",
           "resources": [{ "name": "data", "path": "data.csv" }]
         }
-        """);
+        """;
 
-    List<ValidationIssue> issues = validator.validate(tempDir.resolve("datapackage.json"));
+    List<ValidationIssue> issues = validator.validate(json);
 
     assertTrue(
       issues.stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
-          && "/profile".equals(i.location())
-          && i.message().toLowerCase().contains("uri")),
+                                 i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
+                                 && "/profile".equals(i.location())
+                                 && i.message().toLowerCase().contains("uri")),
       "Expected URI format violation at /profile, got: " + issues);
   }
 
   @Test
-  void shouldReportViolationWhenResourceProfileIsNotInEnum() throws Exception {
-    Files.writeString(tempDir.resolve("data.csv"), "id\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+  void shouldReportViolationWhenResourceProfileIsNotInEnum() {
+    String json = """
         {
           "name": "bad-resource-profile",
-          "profile": "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
+          "profile": "%s",
           "resources": [{
             "name": "event",
             "path": "data.csv",
             "profile": "object"
           }]
         }
-        """);
+        """.formatted(PROFILE_0_1);
 
-    List<ValidationIssue> issues = validator.validate(tempDir.resolve("datapackage.json"));
+    List<ValidationIssue> issues = validator.validate(json);
 
     assertTrue(
       issues.stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
-          && "/resources/0/profile".equals(i.location())
-          && i.message().toLowerCase().contains("enum")),
+                                 i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
+                                 && "/resources/0/profile".equals(i.location())
+                                 && i.message().toLowerCase().contains("enum")),
       "Expected enum violation at $.resources0.profile, got: " + issues);
   }
 
   @Test
-  void shouldReportViolationWhenDwcResourceMissingRequiredResourceProfile() throws Exception {
-    Files.writeString(tempDir.resolve("event.csv"), "eventID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+  void shouldReportViolationWhenDwcResourceMissingRequiredResourceProfile() {
+    String json = """
         {
           "name": "missing-resource-profile",
-          "profile": "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
+          "profile": "%s",
           "resources": [{
             "name": "event",
             "path": "event.csv"
           }]
         }
-        """);
+        """.formatted(PROFILE_0_1);
 
-    List<ValidationIssue> issues = validator.validate(tempDir.resolve("datapackage.json"));
+    List<ValidationIssue> issues = validator.validate(json);
 
     assertTrue(
       issues.stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
-          && i.location() != null && i.location().startsWith("/resources/0")
-          && i.message().contains("required")
-          && i.message().contains("profile")),
+                                 i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
+                                 && i.location() != null && i.location().startsWith("/resources/0")
+                                 && i.message().contains("required")
+                                 && i.message().contains("profile")),
       "Expected required 'profile' violation under /resources/0, got: " + issues);
   }
 
   @Test
-  void shouldReportViolationWhenFieldMissingRequiredDcTermsIsVersionOf() throws Exception {
-    Files.writeString(tempDir.resolve("event.csv"), "eventID\n1\n");
-    Files.writeString(tempDir.resolve("datapackage.json"), """
+  void shouldReportViolationWhenFieldMissingRequiredDcTermsIsVersionOf() {
+    String json = """
         {
           "name": "missing-field-uri",
-          "profile": "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
+          "profile": "%s",
           "resources": [{
             "name": "event",
             "path": "event.csv",
@@ -178,22 +173,27 @@ class DwcDpProfileValidatorTest {
             }
           }]
         }
-        """);
+        """.formatted(PROFILE_0_1);
 
-    List<ValidationIssue> issues = validator.validate(tempDir.resolve("datapackage.json"));
+    List<ValidationIssue> issues = validator.validate(json);
 
     assertTrue(
       issues.stream().anyMatch(i ->
-        i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
-          && i.location() != null && i.location().startsWith("/resources/0/schema/fields/0")
-          && i.message().contains("required")
-          && i.message().contains("dcterms:isVersionOf")),
+                                 i.violationType() == DescriptorViolationType.JSON_SCHEMA_VIOLATION
+                                 && i.location() != null && i.location().startsWith("/resources/0/schema/fields/0")
+                                 && i.message().contains("required")
+                                 && i.message().contains("dcterms:isVersionOf")),
       "Expected required 'dcterms:isVersionOf' violation at /resources/0/schema/fields/0, got: " + issues);
   }
 
   @Test
-  void shouldSkipValidationGracefullyWhenSchemaUnavailable() {
-    List<ValidationIssue> issues = validator.validate(tempDir.resolve("nonexistent.json"));
-    assertNotNull(issues);
+  void shouldReturnUnavailableIssueWhenSchemaFailedToLoad() {
+    DwcDpProfileValidator brokenValidator =
+      new DwcDpProfileValidator((com.networknt.schema.Schema) null, java.util.Map.of());
+
+    List<ValidationIssue> issues = brokenValidator.validate("{}");
+
+    assertEquals(1, issues.size());
+    assertEquals(DescriptorViolationType.JSON_SCHEMA_UNAVAILABLE, issues.get(0).violationType());
   }
 }
