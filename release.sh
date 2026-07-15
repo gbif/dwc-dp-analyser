@@ -14,9 +14,14 @@
 #   3. Runs nfpm three times (deb, rpm, archlinux/pacman) and assembles a
 #      Windows portable zip (bin/ + lib/, matching what the .bat wrapper
 #      expects) — four artifacts land in dist/.
+#   4. Generates a checksums.txt (SHA256) covering every artifact in
+#      dist/, then GPG-signs checksums.txt with a detached armored
+#      signature so downloaders can verify both integrity and origin.
 #
 # Requires: nfpm installed and on PATH (https://nfpm.goreleaser.com), and
-# `zip` available for the Windows archive.
+# `zip` available for the Windows archive. GPG signing is done with
+# whatever key `gpg` picks as default (or GPG_KEY_ID if set) — skip with
+# SKIP_SIGN=1 if you don't want a signature for a given run.
 
 set -euo pipefail
 
@@ -39,6 +44,16 @@ check_dependencies() {
   if ! command -v zip >/dev/null 2>&1; then
     echo "error: zip not found on PATH" >&2
     echo "  install: e.g. 'sudo pacman -S zip' / 'sudo apt install zip'" >&2
+    missing=1
+  fi
+
+  if ! command -v sha256sum >/dev/null 2>&1; then
+    echo "error: sha256sum not found on PATH" >&2
+    missing=1
+  fi
+
+  if [ "${SKIP_SIGN:-0}" != "1" ] && ! command -v gpg >/dev/null 2>&1; then
+    echo "error: gpg not found on PATH (set SKIP_SIGN=1 to release without signing)" >&2
     missing=1
   fi
 
@@ -115,6 +130,31 @@ cp "${STAGING_DIR}/dwc-dp-analyser-cli-runner.jar" "${WIN_STAGE_DIR}/lib/dwc-dp-
   cd "${STAGING_DIR}/windows"
   zip -qr "${DIST_DIR}/dwc-dp-analyser-${VERSION}-windows.zip" "dwc-dp-analyser-${VERSION}"
 )
+
+echo "==> generating checksums.txt"
+# Any prior checksums.txt (and its signature) in dist/ is release output
+# from an earlier run, not something to checksum against itself — drop
+# both before hashing so re-running this script on the same version stays
+# idempotent instead of accumulating stale/self-referential entries.
+rm -f "${DIST_DIR}/checksums.txt" "${DIST_DIR}/checksums.txt.asc"
+(
+  cd "${DIST_DIR}"
+  sha256sum -- * > checksums.txt
+)
+echo "==> wrote ${DIST_DIR}/checksums.txt"
+
+if [ "${SKIP_SIGN:-0}" = "1" ]; then
+  echo "==> SKIP_SIGN=1, not signing checksums.txt"
+else
+  echo "==> signing checksums.txt"
+  GPG_SIGN_ARGS=(--detach-sign --armor)
+  if [ -n "${GPG_KEY_ID:-}" ]; then
+    GPG_SIGN_ARGS+=(--local-user "${GPG_KEY_ID}")
+  fi
+  gpg "${GPG_SIGN_ARGS[@]}" --output "${DIST_DIR}/checksums.txt.asc" "${DIST_DIR}/checksums.txt"
+  echo "==> wrote ${DIST_DIR}/checksums.txt.asc"
+  echo "    verify with: gpg --verify checksums.txt.asc checksums.txt"
+fi
 
 echo "==> done. artifacts in ${DIST_DIR}/:"
 ls -1 "${DIST_DIR}"
