@@ -212,7 +212,7 @@ class DwcDpAnalyser < Formula
     libexec.install "dwc-dp-analyser-${VERSION}.jar" => "dwc-dp-analyser-cli.jar"
     (bin/"dwc-dp-analyser").write <<~SCRIPT
       #!/bin/bash
-      exec "#{Formula["openjdk"].opt_bin}/java" -jar "#{libexec}/dwc-dp-analyser-cli.jar" "\$@"
+      exec "#{Formula["openjdk"].opt_bin}/java" -jar "#{libexec}/dwc-dp-analyser-cli.jar" --enable-native-access=ALL-UNNAMED "\$@"
     SCRIPT
   end
 
