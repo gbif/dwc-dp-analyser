@@ -200,7 +200,7 @@ else
 class DwcDpAnalyser < Formula
   desc "Validator/analyser CLI for DwC-DP data packages"
   homepage "https://github.com/${REPO}"
-  url "https://github.com/${REPO}/releases/download/v${VERSION}/dwc-dp-analyser-${VERSION}.jar"
+  url "https://github.com/${REPO}/releases/download/dwc-dp-analyser-${VERSION}/dwc-dp-analyser-${VERSION}.jar"
   sha256 "${JAR_SHA256}"
   license "Apache-2.0"
 
