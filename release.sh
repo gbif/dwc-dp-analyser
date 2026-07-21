@@ -94,9 +94,22 @@ fi
 SOURCE_JAR="${matches[0]}"
 echo "==> found: ${SOURCE_JAR}"
 
+echo "==> cleaning ${DIST_DIR}"
+# dist/ is release output only — wipe it at the start of every run so it
+# always reflects just this version's artifacts, not a pileup from every
+# version ever released.
+rm -rf "${DIST_DIR}"
 mkdir -p "${STAGING_DIR}" "${DIST_DIR}"
 cp "${SOURCE_JAR}" "${STAGING_DIR}/dwc-dp-analyser-cli-runner.jar"
 echo "==> staged as ${STAGING_DIR}/dwc-dp-analyser-cli-runner.jar"
+
+# Also drop a version-named copy of the jar straight into dist/. This is
+# the artifact the Homebrew formula points at — no tar/zip needed, since
+# the formula just tells Homebrew to write its own "java -jar" wrapper at
+# install time. Riding along in dist/ means it's covered by checksums.txt
+# and the GPG signature like everything else.
+cp "${SOURCE_JAR}" "${DIST_DIR}/dwc-dp-analyser-${VERSION}.jar"
+echo "==> copied jar to ${DIST_DIR}/dwc-dp-analyser-${VERSION}.jar (Homebrew release asset)"
 
 echo "==> building .deb"
 VERSION="${VERSION}" nfpm package \
@@ -132,11 +145,6 @@ cp "${STAGING_DIR}/dwc-dp-analyser-cli-runner.jar" "${WIN_STAGE_DIR}/lib/dwc-dp-
 )
 
 echo "==> generating checksums.txt"
-# Any prior checksums.txt (and its signature) in dist/ is release output
-# from an earlier run, not something to checksum against itself — drop
-# both before hashing so re-running this script on the same version stays
-# idempotent instead of accumulating stale/self-referential entries.
-rm -f "${DIST_DIR}/checksums.txt" "${DIST_DIR}/checksums.txt.asc"
 (
   cd "${DIST_DIR}"
   sha256sum -- * > checksums.txt
@@ -154,6 +162,72 @@ else
   gpg "${GPG_SIGN_ARGS[@]}" --output "${DIST_DIR}/checksums.txt.asc" "${DIST_DIR}/checksums.txt"
   echo "==> wrote ${DIST_DIR}/checksums.txt.asc"
   echo "    verify with: gpg --verify checksums.txt.asc checksums.txt"
+fi
+
+echo "==> generating Homebrew formula"
+# The formula just needs a download URL + sha256 for the jar we already
+# copied into dist/ above. We assume it'll be uploaded as a GitHub Release
+# asset on this same repo (e.g. via `gh release create v${VERSION} dist/*`)
+# — override GITHUB_REPO if that's ever not the case, or set
+# SKIP_FORMULA=1 to opt out of generating it for a given run.
+if [ "${SKIP_FORMULA:-0}" = "1" ]; then
+  echo "==> SKIP_FORMULA=1, not generating Homebrew formula"
+else
+  if [ -n "${GITHUB_REPO:-}" ]; then
+    REPO="${GITHUB_REPO}"
+  else
+    ORIGIN_URL="$(git -C "${ROOT_DIR}" remote get-url origin 2>/dev/null || true)"
+    # handles both git@github.com:owner/repo.git and
+    # https://github.com/owner/repo.git (with or without trailing .git).
+    # Strip any trailing .git first — sed's ERE has no non-greedy
+    # quantifiers, so trying to do both in one lazy pattern silently
+    # swallows ".git" into the repo name instead of stripping it.
+    ORIGIN_URL="${ORIGIN_URL%.git}"
+    REPO="$(printf '%s' "${ORIGIN_URL}" | sed -nE 's#^(git@github\.com:|https://github\.com/)([^/]+/[^/]+)$#\2#p')"
+  fi
+
+  if [ -z "${REPO:-}" ]; then
+    echo "warn: could not determine owner/repo from git remote, skipping formula generation" >&2
+    echo "      set GITHUB_REPO=owner/repo to generate it manually, e.g.:" >&2
+    echo "      GITHUB_REPO=your-org/dwc-dp-analyser $0 ${VERSION}" >&2
+  else
+    JAR_SHA256="$(sha256sum "${DIST_DIR}/dwc-dp-analyser-${VERSION}.jar" | awk '{print $1}')"
+    FORMULA_DIR="${ROOT_DIR}/Formula"
+    FORMULA_PATH="${FORMULA_DIR}/dwc-dp-analyser.rb"
+    mkdir -p "${FORMULA_DIR}"
+
+    cat > "${FORMULA_PATH}" <<EOF
+class DwcDpAnalyser < Formula
+  desc "Validator/analyser CLI for DwC-DP data packages"
+  homepage "https://github.com/${REPO}"
+  url "https://github.com/${REPO}/releases/download/v${VERSION}/dwc-dp-analyser-${VERSION}.jar"
+  sha256 "${JAR_SHA256}"
+  license "Apache-2.0"
+
+  # Adjust the openjdk version constraint here if the CLI needs a specific
+  # Java release (e.g. "openjdk@21") rather than whatever's latest.
+  depends_on "openjdk"
+
+  def install
+    libexec.install "dwc-dp-analyser-${VERSION}.jar" => "dwc-dp-analyser-cli.jar"
+    (bin/"dwc-dp-analyser").write <<~SCRIPT
+      #!/bin/bash
+      exec "#{Formula["openjdk"].opt_bin}/java" -jar "#{libexec}/dwc-dp-analyser-cli.jar" "\$@"
+    SCRIPT
+  end
+
+  test do
+    system "#{bin}/dwc-dp-analyser", "--help"
+  end
+end
+EOF
+    echo "==> wrote ${FORMULA_PATH}"
+    echo "    once dist/dwc-dp-analyser-${VERSION}.jar is uploaded as a release asset on"
+    echo "    ${REPO} (tag v${VERSION}), copy this file into your homebrew-tap repo's"
+    echo "    Formula/ directory, commit, and push. Then:"
+    echo "      brew tap ${REPO%%/*}/dwc-dp-analyser"
+    echo "      brew install dwc-dp-analyser"
+  fi
 fi
 
 echo "==> done. artifacts in ${DIST_DIR}/:"
