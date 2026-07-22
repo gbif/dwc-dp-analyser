@@ -212,8 +212,25 @@ class DwcDpAnalyser < Formula
     libexec.install "dwc-dp-analyser-${VERSION}.jar" => "dwc-dp-analyser-cli.jar"
     (bin/"dwc-dp-analyser").write <<~SCRIPT
       #!/bin/bash
-      exec "#{Formula["openjdk"].opt_bin}/java" -jar "#{libexec}/dwc-dp-analyser-cli.jar" --enable-native-access=ALL-UNNAMED "\$@"
+      exec "#{Formula["openjdk"].opt_bin}/java" --enable-native-access=ALL-UNNAMED -jar "#{libexec}/dwc-dp-analyser-cli.jar" "\$@"
     SCRIPT
+
+    # picocli ships a completion generator (AutoComplete) baked into the
+    # runner jar already — no extra build step needed. Run it against this
+    # same jar so the completion script always matches the version being
+    # installed. picocli only emits a bash-style script, so zsh gets a
+    # small wrapper that loads bashcompinit and sources it, rather than a
+    # native #compdef function.
+    system Formula["openjdk"].opt_bin/"java", "-cp", libexec/"dwc-dp-analyser-cli.jar",
+           "picocli.AutoComplete", "--force", "-n", "dwc-dp-analyser",
+           "-o", "dwc-dp-analyser_completion", "org.gbif.dp.cli.Config"
+    bash_completion.install "dwc-dp-analyser_completion" => "dwc-dp-analyser"
+
+    (zsh_completion/"_dwc-dp-analyser").write <<~ZSH
+      #compdef dwc-dp-analyser
+      autoload -U +X bashcompinit && bashcompinit
+      source "#{bash_completion}/dwc-dp-analyser"
+    ZSH
   end
 
   test do
@@ -223,8 +240,8 @@ end
 EOF
     echo "==> wrote ${FORMULA_PATH}"
     echo "    once dist/dwc-dp-analyser-${VERSION}.jar is uploaded as a release asset on"
-    echo "    ${REPO} (tag v${VERSION}), copy this file into your homebrew-tap repo's"
-    echo "    Formula/ directory, commit, and push. Then:"
+    echo "    ${REPO} (tag dwc-dp-analyser-${VERSION}), copy this file into your"
+    echo "    homebrew-tap repo's Formula/ directory, commit, and push. Then:"
     echo "      brew tap ${REPO%%/*}/dwc-dp-analyser"
     echo "      brew install dwc-dp-analyser"
   fi

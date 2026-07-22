@@ -30,6 +30,8 @@ import org.gbif.dp.duckdb.CustomDuckDbConfig;
 import org.gbif.dp.validator.api.DescriptorValidationResult;
 import org.gbif.dp.validator.api.ValidationIssue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -63,9 +65,19 @@ public class ValidationCli {
     CommandLine commandLine = new CommandLine(config);
     commandLine.setCaseInsensitiveEnumValuesAllowed(true);
     int executed = commandLine.execute(args);
+
+    if (commandLine.isUsageHelpRequested() || commandLine.isVersionHelpRequested()) {
+      return EXIT_VALIDATION_SUCCESS;
+    }
+
     if (executed != 0) {
-      commandLine.printVersionHelp(System.err);
+      commandLine.usage(System.err);
       return EXIT_PROGRAM_ERROR;
+    }
+
+    int pathCheck = validateDescriptorPath(config.descriptorPath);
+    if (pathCheck != EXIT_VALIDATION_SUCCESS) {
+      return pathCheck;
     }
 
     if (config.quiet) {
@@ -91,10 +103,21 @@ public class ValidationCli {
         new DuckDbResourceLoader(new DuckDbDialectRenderer()),
         duckDbConfig));
 
-    DatapackageAnalysisResult result = orchestrator.analyse(
-      config.descriptorPath,
-      ValidationOptions.defaults(),
-      AnalysisFeature.ALL_FEATURES);
+    DatapackageAnalysisResult result;
+    try {
+      result = orchestrator.analyse(
+        config.descriptorPath,
+        ValidationOptions.defaults(),
+        AnalysisFeature.ALL_FEATURES);
+    } catch (Exception e) {
+      System.err.println("Error: analysis failed: " + e.getMessage());
+      if (config.verbose) {
+        log.error("Full stack trace:", e);
+      } else {
+        System.err.println("  (run with --verbose for the full stack trace)");
+      }
+      return EXIT_PROGRAM_ERROR;
+    }
 
     Duration duration = Duration.between(start, Instant.now());
 
@@ -105,6 +128,44 @@ public class ValidationCli {
     }
 
     return DatapackageAnalysisResult.isValid(result) ? EXIT_VALIDATION_SUCCESS : EXIT_VALIDATION_ERROR;
+  }
+
+  /**
+   * Sanity-checks the descriptor path before it's handed to the orchestrator,
+   * so a bad path fails with a clear one-line message instead of an NPE deep
+   * inside NIO/DuckDB internals.
+   */
+  private static int validateDescriptorPath(String descriptorPath) {
+    if (descriptorPath == null || descriptorPath.isBlank()) {
+      System.err.println("Error: <descriptorPath> is required (path to datapackage.json)");
+      return EXIT_PROGRAM_ERROR;
+    }
+
+    Path path = Path.of(descriptorPath);
+
+    if (!Files.exists(path)) {
+      System.err.println("Error: file not found: " + descriptorPath);
+      System.err.println("  hint: check the path is correct and relative to your current directory ("
+                         + System.getProperty("user.dir") + ")");
+      return EXIT_PROGRAM_ERROR;
+    }
+
+    if (Files.isDirectory(path)) {
+      System.err.println("Error: expected a file but found a directory: " + descriptorPath);
+      System.err.println("  hint: point <descriptorPath> at the datapackage.json file itself, not its containing folder");
+      return EXIT_PROGRAM_ERROR;
+    }
+
+    if (!Files.isReadable(path)) {
+      System.err.println("Error: file exists but is not readable (check permissions): " + descriptorPath);
+      return EXIT_PROGRAM_ERROR;
+    }
+
+    if (!descriptorPath.endsWith(".json")) {
+      System.err.println("Warning: expected a .json file, got: " + descriptorPath);
+    }
+
+    return EXIT_VALIDATION_SUCCESS;
   }
 
   private static void printJson(DatapackageAnalysisResult result, Duration duration, Config.ReportMode mode)
@@ -168,7 +229,7 @@ public class ValidationCli {
       for (ValidationIssue issue : descriptor.issues()) {
         String loc = issue.location() != null ? " [" + issue.location() + "]" : "";
         System.out.printf("[%s] %s%s: %s%n",
-          issue.severity(), issue.code(), loc, issue.message());
+                          issue.severity(), issue.code(), loc, issue.message());
       }
     }
 
@@ -180,7 +241,7 @@ public class ValidationCli {
       for (ValidationIssue issue : eml.issues()) {
         String loc = issue.location() != null ? " [" + issue.location() + "]" : "";
         System.out.printf("[%s] %s%s: %s%n",
-          issue.severity(), issue.code(), loc, issue.message());
+                          issue.severity(), issue.code(), loc, issue.message());
       }
     }
 
@@ -191,22 +252,22 @@ public class ValidationCli {
 
     for (ForeignKeyViolation v : DatapackageAnalysisResult.foreignKeyViolations(result)) {
       System.out.printf("FK violation: %s(%s) -> %s(%s), count=%d%n",
-        v.resource(), String.join(",", v.fields()),
-        v.referenceResource(), String.join(",", v.referenceFields()),
-        v.violationCount());
+                        v.resource(), String.join(",", v.fields()),
+                        v.referenceResource(), String.join(",", v.referenceFields()),
+                        v.violationCount());
       v.sampleRows().forEach(row -> System.out.println("  sample=" + row));
     }
 
     for (DataTypeViolation v : DatapackageAnalysisResult.dataTypeViolations(result)) {
       System.out.printf("Type violation: %s.%s declared as '%s', count=%d%n",
-        v.resource(), v.field(), v.declaredType(), v.violationCount());
+                        v.resource(), v.field(), v.declaredType(), v.violationCount());
       v.sampleValues().forEach(val -> System.out.println("  bad value: " + val));
     }
   }
 
   private static void printDuration(Duration d) {
     System.out.printf("duration: %02d:%02d:%02d%n",
-      d.toHoursPart(), d.toMinutesPart(), d.toSecondsPart());
+                      d.toHoursPart(), d.toMinutesPart(), d.toSecondsPart());
   }
 
   private static void printStatisticsTable(List<ResourceAnalysisResult> resources) {
@@ -228,7 +289,7 @@ public class ValidationCli {
 
       String fmt = "| %-" + nameWidth + "s | %" + totalWidth + "s | %" + popWidth + "s | %" + uniqWidth + "s | %" + pctWidth + "s |%n";
       String divider = "+-" + "-".repeat(nameWidth) + "-+-" + "-".repeat(totalWidth) + "-+-"
-        + "-".repeat(popWidth) + "-+-" + "-".repeat(uniqWidth) + "-+-" + "-".repeat(pctWidth) + "-+";
+                       + "-".repeat(popWidth) + "-+-" + "-".repeat(uniqWidth) + "-+-" + "-".repeat(pctWidth) + "-+";
 
       System.out.println("=== " + resource.name() + " (" + resource.totalRows() + " rows) ===");
       System.out.println(divider);
