@@ -29,6 +29,19 @@ import org.slf4j.LoggerFactory;
  * versions today, a manifest-driven registry would be extra machinery for no current payoff.
  * Worth revisiting if the number of supported versions grows enough that adding one without
  * a code change becomes valuable.
+ *
+ * <p>A version can also declare {@code aliasProfileUris} — other profile URIs that should
+ * resolve to the exact same {@link DwcDpSchemaVersion} (same loaded {@code Schema} instance,
+ * same table-schema classpath base). This exists for the 1.0 / 1.0_DEV situation: some
+ * datasets already declare the eventual production profile URI
+ * ({@code https://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json}) even though only the
+ * prerelease 1.0_DEV schemas exist on the classpath today. Aliasing re-uses the already-loaded
+ * 1.0_DEV schema under that extra key instead of trying to load a second copy from a classpath
+ * path that doesn't exist — the version segment in the classpath is derived from the profile
+ * URI's own tail (see {@link DwcDpProfileSchemaLoader}), so a genuinely separate
+ * {@code VersionConfig} for "1.0" would require duplicating schema resources under both
+ * {@code /schemas/1.0} and {@code /schemas/1.0_DEV}. Remove the alias once 1.0 is officially
+ * published with its own schema files.
  */
 public class DwcDpProfileRegistry {
 
@@ -39,8 +52,22 @@ public class DwcDpProfileRegistry {
    *  segment here, or you'll double it (see incident: schemas/0.1/0.1/...). */
   private static final String SCHEMA_CLASSPATH_REF = "classpath:schemas";
 
-  /** Registration for one known DwC-DP profile version. */
-  record VersionConfig(String profileUri, String tdwgSchemaBaseUrl, String tableSchemaClasspathBase) {}
+  /**
+   * Registration for one known DwC-DP profile version.
+   *
+   * @param aliasProfileUris additional profile URIs that resolve to this same version without
+   *                         a separate schema load — see class-level Javadoc.
+   */
+  record VersionConfig(
+    String profileUri,
+    String tdwgSchemaBaseUrl,
+    String tableSchemaClasspathBase,
+    List<String> aliasProfileUris) {
+
+    VersionConfig(String profileUri, String tdwgSchemaBaseUrl, String tableSchemaClasspathBase) {
+      this(profileUri, tdwgSchemaBaseUrl, tableSchemaClasspathBase, List.of());
+    }
+  }
 
   private static final List<VersionConfig> KNOWN_VERSIONS = List.of(
     new VersionConfig(
@@ -50,7 +77,9 @@ public class DwcDpProfileRegistry {
     new VersionConfig(
       "https://dwc-prerelease.rs.tdwg.org/dwc-dp/1.0_DEV/dwc-dp-profile.json",
       "https://dwc-prerelease.rs.tdwg.org/dwc-dp",
-      "/schemas/1.0_DEV")
+      "/schemas/1.0_DEV",
+      // TODO: remove once DwC-DP 1.0 is officially published with its own schema files.
+      List.of("https://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json"))
   );
 
   private final Map<String, DwcDpSchemaVersion> byProfileUri;
@@ -68,8 +97,15 @@ public class DwcDpProfileRegistry {
         log.warn("Skipping DwC-DP version {} — profile schema failed to load", config.profileUri());
       }
       log.debug("Loaded DwC-DP profile schema: {}", schema);
-      map.put(config.profileUri(),
-              new DwcDpSchemaVersion(config.profileUri(), schema, config.tableSchemaClasspathBase()));
+
+      DwcDpSchemaVersion version =
+        new DwcDpSchemaVersion(config.profileUri(), schema, config.tableSchemaClasspathBase());
+      map.put(config.profileUri(), version);
+
+      for (String alias : config.aliasProfileUris()) {
+        log.debug("Aliasing DwC-DP profile '{}' -> '{}'", alias, config.profileUri());
+        map.put(alias, version);
+      }
     }
     this.byProfileUri = Map.copyOf(map);
   }
