@@ -210,6 +210,7 @@ public class ValidationCli {
     var descriptor = result.descriptorValidation();
     if (!descriptor.canProceedToDataAnalysis()) {
       System.out.println("Data analysis skipped due to blocking descriptor errors.");
+      printDescriptorIssues(descriptor);
       printDuration(duration);
       return;
     }
@@ -224,15 +225,7 @@ public class ValidationCli {
   }
 
   private static void printValidationResults(DatapackageAnalysisResult result, DescriptorValidationResult descriptor) {
-    if (!descriptor.issues().isEmpty()) {
-      System.out.println("=== Descriptor validation ===");
-      for (ValidationIssue issue : descriptor.issues()) {
-        String loc = issue.location() != null ? " [" + issue.location() + "]" : "";
-        System.out.printf("[%s] %s%s: %s%n",
-                          issue.severity(), issue.code(), loc, issue.message());
-      }
-    }
-
+    printDescriptorIssues(descriptor);
 
     // ── EML issues ────────────────────────────────────────────────────────
     var eml = result.emlValidation();
@@ -262,6 +255,17 @@ public class ValidationCli {
       System.out.printf("Type violation: %s.%s declared as '%s', count=%d%n",
                         v.resource(), v.field(), v.declaredType(), v.violationCount());
       v.sampleValues().forEach(val -> System.out.println("  bad value: " + val));
+    }
+  }
+
+  private static void printDescriptorIssues(DescriptorValidationResult descriptor) {
+    if (!descriptor.issues().isEmpty()) {
+      System.out.println("=== Descriptor validation ===");
+      for (ValidationIssue issue : descriptor.issues()) {
+        String loc = issue.location() != null ? " [" + issue.location() + "]" : "";
+        System.out.printf("[%s] %s%s: %s%n",
+                          issue.severity(), issue.code(), loc, issue.message());
+      }
     }
   }
 
