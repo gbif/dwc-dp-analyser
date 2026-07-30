@@ -73,13 +73,17 @@ public class DwcDpProfileRegistry {
     new VersionConfig(
       "https://rs.tdwg.org/dwc-dp/0.1/dwc-dp-profile.json",
       "https://rs.tdwg.org/dwc-dp",
-      "/schemas/0.1"),
+      "/schemas/0.1",
+      List.of("http://rs.tdwg.org/dwc-dp/0.1/dwc-dp-profile.json")),
     new VersionConfig(
       "https://dwc-prerelease.rs.tdwg.org/dwc-dp/1.0_DEV/dwc-dp-profile.json",
       "https://dwc-prerelease.rs.tdwg.org/dwc-dp",
       "/schemas/1.0_DEV",
       // TODO: remove once DwC-DP 1.0 is officially published with its own schema files.
-      List.of("https://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json"))
+      List.of(
+        "https://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
+        "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
+        "http://dwc-prerelease.rs.tdwg.org/dwc-dp/1.0_DEV/dwc-dp-profile.json"))
   );
 
   private final Map<String, DwcDpSchemaVersion> byProfileUri;
