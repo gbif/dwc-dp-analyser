@@ -253,3 +253,35 @@ fi
 
 echo "==> done. artifacts in ${DIST_DIR}/:"
 ls -1 "${DIST_DIR}"
+
+# --- optionally push the formula straight to the local Homebrew tap -------
+# Skipped automatically when: not interactive (CI), brew isn't installed,
+# formula generation was skipped/failed, or SKIP_TAP_UPDATE=1 is set. The
+# tap's user/name are separate from the analyser repo's own owner/repo
+# (REPO above) since the tap can live under a different account — override
+# with HOMEBREW_TAP_USER / HOMEBREW_TAP_NAME if yours differs from the
+# defaults below.
+if [ -f "${FORMULA_PATH:-}" ] && [ -t 0 ] && [ "${SKIP_TAP_UPDATE:-0}" != "1" ] && command -v brew >/dev/null 2>&1; then
+  TAP_USER="${HOMEBREW_TAP_USER:-wisienkas}"
+  TAP_NAME="${HOMEBREW_TAP_NAME:-dwc-dp-analyser}"
+  TAP_DIR="$(brew --repository)/Library/Taps/${TAP_USER}/homebrew-${TAP_NAME}"
+
+  if [ -d "${TAP_DIR}" ]; then
+    echo ""
+    read -rp "==> copy formula to local tap (${TAP_USER}/${TAP_NAME}), commit, and push? [y/N] " REPLY
+    if [[ "${REPLY}" =~ ^[Yy]$ ]]; then
+      cp "${FORMULA_PATH}" "${TAP_DIR}/Formula/dwc-dp-analyser.rb"
+      (
+        cd "${TAP_DIR}"
+        git add Formula/dwc-dp-analyser.rb
+        git commit -m "dwc-dp-analyser ${VERSION}"
+        git push
+      )
+      echo "==> tap updated and pushed"
+    else
+      echo "==> skipped tap update — copy ${FORMULA_PATH} to ${TAP_DIR}/Formula/ manually when ready"
+    fi
+  else
+    echo "note: local tap not found at ${TAP_DIR} (set HOMEBREW_TAP_USER/HOMEBREW_TAP_NAME if it lives elsewhere) — skipping tap update prompt"
+  fi
+fi
