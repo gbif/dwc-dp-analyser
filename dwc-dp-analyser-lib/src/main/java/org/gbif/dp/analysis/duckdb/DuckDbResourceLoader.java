@@ -51,14 +51,53 @@ public class DuckDbResourceLoader {
       .map(DuckDbResourceLoader::toDuckDbLocation)
       .toList();
 
+    log.debug("Creating temporary table [{}] for resource '{}'", name, name);
+    try {
+      executeCreateTempTable(connection, name, resolvedLocations, dialect, false);
+    } catch (SQLException e) {
+      if (!isConversionError(e)) {
+        throw e;
+      }
+      // The sampled auto-detection guessed a type (e.g. BOOLEAN) that a value later in the file
+      // doesn't fit. This is expected, unremarkable behaviour on messy real-world data — not a
+      // warning sign — so it's logged at debug only. Falling back to all_varchar=true always
+      // succeeds regardless of content; actual type conformance is still fully checked afterward
+      // by DuckDbDataTypeValidator's TRY_CAST-based validation, so nothing is lost by loading as
+      // text here.
+      log.debug("Conversion Error during creation of temporary table [{}], using all_varchar", name);
+      executeCreateTempTable(connection, name, resolvedLocations, dialect, true);
+    }
+  }
+
+  private void executeCreateTempTable(
+    Connection connection, String name, List<String> resolvedLocations,
+    DialectDescriptor dialect, boolean allVarchar) throws SQLException {
     String sql = "CREATE TEMP TABLE " + q(name) + " AS SELECT * FROM "
-                 + dialectRenderer.buildReadQuery(resolvedLocations, dialect);
+                 + dialectRenderer.buildReadQuery(resolvedLocations, dialect, allVarchar);
     log.debug("Running create temporary table sql: [{}]", sql);
     try (Statement statement = connection.createStatement()) {
       statement.execute(sql);
     } catch (SQLException e) {
       throw new SQLException(String.format("Error creating temporary table sql: [%s]", sql), e);
     }
+  }
+
+  /**
+   * DuckDB's JDBC driver has no typed exception hierarchy — every failure surfaces as a plain
+   * {@link SQLException} whose message is prefixed with DuckDB's own internal error category
+   * (e.g. {@code "Conversion Error: ..."}, {@code "IO Error: ..."}). A Conversion Error can only
+   * occur when a value fails to cast into a non-VARCHAR type that auto-detection inferred; text
+   * itself can never fail to load. That message prefix is the stable signal to key on — not the
+   * nested {@code "CSV Error"} detail, which is specific to delimited-file reads (the same prefix
+   * appears regardless of delimiter, e.g. CSV vs TSV).
+   */
+  private static boolean isConversionError(SQLException e) {
+    for (Throwable t = e; t != null; t = t.getCause()) {
+      if (t.getMessage() != null && t.getMessage().startsWith("Conversion Error")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

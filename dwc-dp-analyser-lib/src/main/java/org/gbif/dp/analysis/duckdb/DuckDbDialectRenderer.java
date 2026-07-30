@@ -24,12 +24,25 @@ import static org.gbif.dp.analysis.duckdb.DuckDbRenderUtils.*;
 public class DuckDbDialectRenderer {
 
   public String toReadCsvArgs(DialectDescriptor dialect, String filename) {
+    return toReadCsvArgs(dialect, filename, false);
+  }
+
+  /**
+   * @param allVarchar when true, disables type auto-detection entirely (every column loads as
+   *                   VARCHAR). Used as a fallback after a {@code Conversion Error} on the default
+   *                   (sampled auto-detection) attempt — loading as VARCHAR always succeeds
+   *                   regardless of content, since actual type conformance is checked separately
+   *                   by {@link DuckDbDataTypeValidator} via {@code TRY_CAST}.
+   */
+  public String toReadCsvArgs(DialectDescriptor dialect, String filename, boolean allVarchar) {
     dialect = getOrDefaultOnFilename(dialect, filename);
 
     StringBuilder sb = new StringBuilder();
     sb.append("delim=").append(sq(dialect.delimiter()));
     sb.append(", header=true");
-    sb.append(", sample_size=-1");
+    if (allVarchar) {
+      sb.append(", all_varchar=true");
+    }
 
     if (dialect.escapeChar() != null) {
       sb.append(", escape=").append(sq(dialect.escapeChar()));
@@ -62,6 +75,14 @@ public class DuckDbDialectRenderer {
    *                  not raw descriptor-declared paths
    */
   public String buildReadQuery(List<String> locations, DialectDescriptor dialect) {
+    return buildReadQuery(locations, dialect, false);
+  }
+
+  /**
+   * @param allVarchar see {@link #toReadCsvArgs(DialectDescriptor, String, boolean)}. Has no
+   *                   effect on Parquet resources, which are already typed by the file format.
+   */
+  public String buildReadQuery(List<String> locations, DialectDescriptor dialect, boolean allVarchar) {
     String joinedLocations = locations.stream()
       .map(str -> str.replace("'", "''"))
       .map(str -> "'" + str + "'")
@@ -72,6 +93,6 @@ public class DuckDbDialectRenderer {
     if (filename.toLowerCase(Locale.ROOT).endsWith(".parquet")) {
       return "read_parquet([" + joinedLocations + "])";
     }
-    return "read_csv_auto([" + joinedLocations + "], " + toReadCsvArgs(dialect, filename) + ")";
+    return "read_csv_auto([" + joinedLocations + "], " + toReadCsvArgs(dialect, filename, allVarchar) + ")";
   }
 }

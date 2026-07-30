@@ -31,7 +31,20 @@ class DuckDbDialectRendererTest {
     assertTrue(args.contains("delim=','"));
     assertTrue(args.contains("quote='\"'"));
     assertTrue(args.contains("header=true"));
-    assertTrue(args.contains("sample_size=-1"));
+    // Type auto-detection is left at DuckDB's default (sampled) behaviour; a full-file sniff
+    // is no longer forced on every load. See DuckDbResourceLoader for the all_varchar=true
+    // fallback used only when auto-detection guesses wrong.
+    assertFalse(args.contains("sample_size"));
+    assertFalse(args.contains("all_varchar"));
+  }
+
+  @Test
+  void allVarcharShouldBeOmittedByDefaultAndPresentWhenRequested() {
+    String defaultArgs = renderer.toReadCsvArgs(DialectDescriptor.defaults(), "data.csv", false);
+    assertFalse(defaultArgs.contains("all_varchar"));
+
+    String allVarcharArgs = renderer.toReadCsvArgs(DialectDescriptor.defaults(), "data.csv", true);
+    assertTrue(allVarcharArgs.contains("all_varchar=true"));
   }
 
   @Test
@@ -87,5 +100,20 @@ class DuckDbDialectRendererTest {
     String query = renderer.buildReadQuery(
       List.of("/data/file.csv"), DialectDescriptor.defaults());
     assertTrue(query.startsWith("read_csv_auto("));
+  }
+
+  @Test
+  void allVarcharShouldFlowThroughBuildReadQuery() {
+    String query = renderer.buildReadQuery(
+      List.of("/data/file.csv"), DialectDescriptor.defaults(), true);
+    assertTrue(query.contains("all_varchar=true"));
+  }
+
+  @Test
+  void parquetShouldIgnoreAllVarchar() {
+    String query = renderer.buildReadQuery(
+      List.of("/data/file.parquet"), DialectDescriptor.defaults(), true);
+    assertTrue(query.startsWith("read_parquet("));
+    assertFalse(query.contains("all_varchar"));
   }
 }
