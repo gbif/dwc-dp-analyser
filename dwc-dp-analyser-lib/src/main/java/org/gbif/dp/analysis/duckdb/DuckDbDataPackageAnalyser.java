@@ -164,9 +164,7 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
       pkViolation = findPrimaryKeyViolation(options, resource, connection);
     }
     if (features.contains(AnalysisFeature.DATA_TYPE_CONSTRAINT)) {
-      for (ResourceDescriptor r : descriptor.resources()) {
-        typeViolations.addAll(dataTypeValidator.validate(connection, r, options.sampleSize()));
-      }
+      typeViolations.addAll(dataTypeValidator.validate(connection, resource, options.sampleSize()));
     }
     if (features.contains(AnalysisFeature.COUNT)
       || features.contains(AnalysisFeature.COUNT_DISTINCT)) {

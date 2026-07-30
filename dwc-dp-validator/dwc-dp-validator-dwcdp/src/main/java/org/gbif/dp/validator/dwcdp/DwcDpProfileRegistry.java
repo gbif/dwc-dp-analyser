@@ -79,7 +79,6 @@ public class DwcDpProfileRegistry {
       "https://dwc-prerelease.rs.tdwg.org/dwc-dp/1.0_DEV/dwc-dp-profile.json",
       "https://dwc-prerelease.rs.tdwg.org/dwc-dp",
       "/schemas/1.0_DEV",
-      // TODO: remove once DwC-DP 1.0 is officially published with its own schema files.
       List.of(
         "https://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
         "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",

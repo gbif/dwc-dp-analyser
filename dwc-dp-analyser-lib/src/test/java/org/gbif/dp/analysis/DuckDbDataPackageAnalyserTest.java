@@ -157,6 +157,53 @@ class DuckDbDataPackageAnalyserTest {
   }
 
   @Test
+  void shouldOnlyAttachDataTypeViolationsToTheirOwnResource() throws Exception {
+    // "parent" has a genuine type violation; "child" is entirely well-typed.
+    // Regression test for a bug where the data-type check looped over every
+    // resource in the descriptor while analysing each resource, so a violation
+    // found in one resource was duplicated onto every other resource's result.
+    Files.writeString(tempDir.resolve("parent.csv"), "id,flag\n1,notabool\n2,true\n");
+    Files.writeString(tempDir.resolve("child.csv"), "id,age\n1,10\n2,20\n");
+    Files.writeString(tempDir.resolve("datapackage.json"), """
+        {
+          "name": "leak-check",
+          "resources": [
+            {
+              "name": "parent", "path": "parent.csv",
+              "schema": { "fields": [
+                { "name": "id",   "type": "integer" },
+                { "name": "flag", "type": "boolean" }
+              ]}
+            },
+            {
+              "name": "child", "path": "child.csv",
+              "schema": { "fields": [
+                { "name": "id",  "type": "integer" },
+                { "name": "age", "type": "integer" }
+              ]}
+            }
+          ]
+        }
+        """);
+
+    List<ResourceAnalysisResult> results = analyser.analyse(
+      descriptorLocation(), ValidationOptions.defaults(),
+      List.of(AnalysisFeature.DATA_TYPE_CONSTRAINT));
+
+    ResourceAnalysisResult parent = results.stream()
+      .filter(r -> r.name().equals("parent")).findFirst().orElseThrow();
+    ResourceAnalysisResult child = results.stream()
+      .filter(r -> r.name().equals("child")).findFirst().orElseThrow();
+
+    assertEquals(1, parent.dataTypeViolations().size(),
+      "parent should report its own 'flag' violation exactly once");
+    assertEquals("flag", parent.dataTypeViolations().get(0).field());
+
+    assertTrue(child.dataTypeViolations().isEmpty(),
+      "child is well-typed and must not inherit parent's violations");
+  }
+
+  @Test
   void shouldPassWhenAllTypesAreCorrect() throws Exception {
     setupSmallValidDataset();
     DatapackageAnalysisResult result = orchestrator.analyse(
