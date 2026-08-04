@@ -20,6 +20,7 @@ import org.gbif.dp.analysis.api.DataPackageAnalysisOrchestrator;
 import org.gbif.dp.analysis.api.DataTypeViolation;
 import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
 import org.gbif.dp.analysis.api.ForeignKeyViolation;
+import org.gbif.dp.analysis.api.PrimaryKeyViolation;
 import org.gbif.dp.analysis.api.ResourceAnalysisResult;
 import org.gbif.dp.analysis.api.ValidationOptions;
 import org.gbif.dp.analysis.duckdb.DuckDbDataPackageAnalyser;
@@ -28,12 +29,14 @@ import org.gbif.dp.analysis.duckdb.DuckDbResourceLoader;
 import org.gbif.dp.common.descriptor.JacksonDataPackageParser;
 import org.gbif.dp.duckdb.CustomDuckDbConfig;
 import org.gbif.dp.validator.api.DescriptorValidationResult;
+import org.gbif.dp.validator.api.EmlValidationResult;
 import org.gbif.dp.validator.api.ValidationIssue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -206,56 +209,32 @@ public class ValidationCli {
   }
 
   private static void printText(DatapackageAnalysisResult result, Duration duration, Config.ReportMode mode) {
-    System.out.println("Printing " + mode.name() + " report..");
+    System.out.println("Printing " + mode.name() + " report.");
     var descriptor = result.descriptorValidation();
     if (!descriptor.canProceedToDataAnalysis()) {
       System.out.println("Data analysis skipped due to blocking descriptor errors.");
       printDescriptorIssues(descriptor);
+      printValidity(result);
       printDuration(duration);
       return;
     }
 
     if (Set.of(Config.ReportMode.FULL, Config.ReportMode.VERIFY).contains(mode)) {
-      printValidationResults(result, descriptor);
+      printValidationResults(result);
     }
     if (Set.of(Config.ReportMode.FULL, Config.ReportMode.STATS).contains(mode)) {
       printStatisticsTable(result.resourceAnalysisResults());
     }
+    printViolationSummary(result.resourceAnalysisResults());
+
+    printValidity(result);
     printDuration(duration);
   }
 
-  private static void printValidationResults(DatapackageAnalysisResult result, DescriptorValidationResult descriptor) {
-    printDescriptorIssues(descriptor);
-
-    // ── EML issues ────────────────────────────────────────────────────────
-    var eml = result.emlValidation();
-    if (eml.emlPresent() && !eml.issues().isEmpty()) {
-      System.out.println("=== EML validation ===");
-      for (ValidationIssue issue : eml.issues()) {
-        String loc = issue.location() != null ? " [" + issue.location() + "]" : "";
-        System.out.printf("[%s] %s%s: %s%n",
-                          issue.severity(), issue.code(), loc, issue.message());
-      }
-    }
-
-    // ── Data violations ───────────────────────────────────────────────────
-    if (DatapackageAnalysisResult.isValid(result)) {
-      System.out.println("All validations passed.");
-    }
-
-    for (ForeignKeyViolation v : DatapackageAnalysisResult.foreignKeyViolations(result)) {
-      System.out.printf("FK violation: %s(%s) -> %s(%s), count=%d%n",
-                        v.resource(), String.join(",", v.fields()),
-                        v.referenceResource(), String.join(",", v.referenceFields()),
-                        v.violationCount());
-      v.sampleRows().forEach(row -> System.out.println("  sample=" + row));
-    }
-
-    for (DataTypeViolation v : DatapackageAnalysisResult.dataTypeViolations(result)) {
-      System.out.printf("Type violation: %s.%s declared as '%s', count=%d%n",
-                        v.resource(), v.field(), v.declaredType(), v.violationCount());
-      v.sampleValues().forEach(val -> System.out.println("  bad value: " + val));
-    }
+  private static void printValidationResults(DatapackageAnalysisResult result) {
+    printDescriptorIssues(result.descriptorValidation());
+    printEmlIssues(result);
+    printResourceViolations(result);
   }
 
   private static void printDescriptorIssues(DescriptorValidationResult descriptor) {
@@ -269,8 +248,68 @@ public class ValidationCli {
     }
   }
 
+  private static void printEmlIssues(DatapackageAnalysisResult result) {
+    EmlValidationResult eml = result.emlValidation();
+    if (!eml.emlPresent() || eml.issues().isEmpty()) {
+      return;
+    }
+
+    System.out.println("=== EML validation ===");
+    for (ValidationIssue issue : eml.issues()) {
+      String loc = issue.location() != null ? " [" + issue.location() + "]" : "";
+      System.out.printf("[%s] %s%s: %s%n",
+                        issue.severity(), issue.code(), loc, issue.message());
+    }
+  }
+
+  private static void printResourceViolations(DatapackageAnalysisResult result) {
+    for (ResourceAnalysisResult resource : result.resourceAnalysisResults()) {
+      PrimaryKeyViolation pkViolation = resource.primaryKeyViolation();
+      List<ForeignKeyViolation> fkViolations = resource.foreignKeyViolations();
+      List<DataTypeViolation> typeViolations = resource.dataTypeViolations();
+
+      boolean hasFkViolations = fkViolations != null && !fkViolations.isEmpty();
+      boolean hasTypeViolations = typeViolations != null && !typeViolations.isEmpty();
+
+      if (pkViolation == null && !hasFkViolations && !hasTypeViolations) {
+        continue;
+      }
+
+      System.out.println("--- " + resource.name() + " ---");
+
+      if (pkViolation != null) {
+        System.out.printf("PK violation: %s(%s), count=%d%n",
+                          pkViolation.resource(), String.join(",", pkViolation.fields()),
+                          pkViolation.violationCount());
+        pkViolation.sampleRows().forEach(row -> System.out.println("  sample=" + row));
+      }
+
+      if (hasFkViolations) {
+        for (ForeignKeyViolation v : fkViolations) {
+          System.out.printf("FK violation: %s(%s) -> %s(%s), count=%d%n",
+                            v.resource(), String.join(",", v.fields()),
+                            v.referenceResource(), String.join(",", v.referenceFields()),
+                            v.violationCount());
+          v.sampleRows().forEach(row -> System.out.println("  sample=" + row));
+        }
+      }
+
+      if (hasTypeViolations) {
+        for (DataTypeViolation v : typeViolations) {
+          System.out.printf("Type violation: %s.%s declared as '%s', count=%d%n",
+                            v.resource(), v.field(), v.declaredType(), v.violationCount());
+          v.sampleValues().forEach(val -> System.out.println("  bad value: " + val));
+        }
+      }
+    }
+  }
+
+  private static void printValidity(DatapackageAnalysisResult result) {
+    System.out.println(DatapackageAnalysisResult.isValid(result) ? "Result: VALID" : "Result: INVALID");
+  }
+
   private static void printDuration(Duration d) {
-    System.out.printf("duration: %02d:%02d:%02d%n",
+    System.out.printf("Duration: %02d:%02d:%02d%n",
                       d.toHoursPart(), d.toMinutesPart(), d.toSecondsPart());
   }
 
@@ -310,5 +349,59 @@ public class ValidationCli {
       System.out.println(divider);
       System.out.println();
     }
+  }
+
+  private record ViolationSummaryRow(String resource, String type, String field, long count) {}
+
+  private static void printViolationSummary(List<ResourceAnalysisResult> resources) {
+    List<ViolationSummaryRow> rows = new ArrayList<>();
+
+    for (ResourceAnalysisResult resource : resources) {
+      PrimaryKeyViolation pkViolation = resource.primaryKeyViolation();
+      if (pkViolation != null) {
+        rows.add(new ViolationSummaryRow(
+          resource.name(), "PK", String.join(",", pkViolation.fields()), pkViolation.violationCount()));
+      }
+
+      List<ForeignKeyViolation> fkViolations = resource.foreignKeyViolations();
+      if (fkViolations != null) {
+        for (ForeignKeyViolation v : fkViolations) {
+          rows.add(new ViolationSummaryRow(
+            resource.name(), "FK", String.join(",", v.fields()), v.violationCount()));
+        }
+      }
+
+      List<DataTypeViolation> typeViolations = resource.dataTypeViolations();
+      if (typeViolations != null) {
+        for (DataTypeViolation v : typeViolations) {
+          rows.add(new ViolationSummaryRow(resource.name(), "Type", v.field(), v.violationCount()));
+        }
+      }
+    }
+
+    if (rows.isEmpty()) {
+      return;
+    }
+
+    int resourceWidth = Math.max(rows.stream().mapToInt(r -> r.resource().length()).max().orElse(0), 8);
+    int typeWidth = Math.max(rows.stream().mapToInt(r -> r.type().length()).max().orElse(0), 4);
+    int fieldWidth = Math.max(rows.stream().mapToInt(r -> r.field().length()).max().orElse(0), 5);
+    int countWidth = Math.max(rows.stream().mapToInt(r -> String.valueOf(r.count()).length()).max().orElse(0), 5);
+
+    String fmt = "| %-" + resourceWidth + "s | %-" + typeWidth + "s | %-" + fieldWidth + "s | %" + countWidth + "s |%n";
+    String divider = "+-" + "-".repeat(resourceWidth) + "-+-" + "-".repeat(typeWidth) + "-+-"
+                     + "-".repeat(fieldWidth) + "-+-" + "-".repeat(countWidth) + "-+";
+
+    System.out.println("=== Violation summary ===");
+    System.out.println(divider);
+    System.out.printf(fmt, "Resource", "Type", "Field", "Count");
+    System.out.println(divider);
+
+    for (ViolationSummaryRow r : rows) {
+      System.out.printf(fmt, r.resource(), r.type(), r.field(), r.count());
+    }
+
+    System.out.println(divider);
+    System.out.println();
   }
 }
