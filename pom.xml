@@ -55,7 +55,7 @@
     <java.version>17</java.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-    <duckdb.version>0.10.0</duckdb.version>
+    <duckdb.version>1.5.5.0</duckdb.version>
     <picocli.version>4.7.6</picocli.version>
     <jackson.version>2.18.2</jackson.version>
     <slf4j.version>2.0.17</slf4j.version>
