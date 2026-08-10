@@ -19,6 +19,7 @@ import org.gbif.dp.analysis.api.DataAnalyser;
 import org.gbif.dp.analysis.api.DataPackageAnalysisOrchestrator;
 import org.gbif.dp.analysis.api.DataTypeViolation;
 import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
+import org.gbif.dp.analysis.api.PrimaryKeyViolation;
 import org.gbif.dp.analysis.api.ResourceAnalysisResult;
 import org.gbif.dp.analysis.api.ValidationOptions;
 import org.gbif.dp.analysis.duckdb.DuckDbDataPackageAnalyser;
@@ -40,6 +41,10 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -274,6 +279,86 @@ class DuckDbDataPackageAnalyserTest {
     assertNotNull(results.get(0).primaryKeyViolation());
     assertEquals("data", results.get(0).primaryKeyViolation().resource());
     assertEquals(1, results.get(0).primaryKeyViolation().violationCount());
+  }
+
+  @ValueSource(strings = {
+    "",
+    "nil",
+  })
+  @ParameterizedTest
+  void shouldFailOnNullPrimaryKeys(String nullPk) throws IOException, SQLException {
+    String csv = String.format("""
+        id,score
+        1,2
+        %s,5
+        2,5
+        """, nullPk);
+    Files.writeString(tempDir.resolve("data.csv"), csv);
+    Files.writeString(tempDir.resolve("datapackage.json"), """
+        {
+          "name": "duplicate-primary-key",
+          "resources": [{
+            "name": "data",
+            "path": "data.csv",
+            "schema": {
+              "fields": [
+                { "name": "id",    "type": "string" , "missingValues": ["nil"] },
+                { "name": "score", "type": "number",  "missingValues": ["-1"] }
+              ],
+              "primaryKey": "id"
+            }
+          }]
+        }
+    """);
+
+    List<ResourceAnalysisResult> results = analyser.analyse(
+      descriptorLocation(), ValidationOptions.defaults(),
+      List.of(AnalysisFeature.PRIMARY_KEY_UNIQUE));
+
+    assertFalse(results.isEmpty());
+    assertEquals(1, results.size());
+    assertNotNull(results.get(0).primaryKeyViolation());
+    assertEquals("data", results.get(0).primaryKeyViolation().resource());
+    assertEquals(1, results.get(0).primaryKeyViolation().violationCount());
+  }
+
+  @Test
+  void shouldReportMixOfDuplicateAndMissingPrimaryKeys() throws IOException, SQLException {
+    String csv = """
+      id,score
+      1,2
+      1,2
+      ,5
+      NA,5
+      2,5
+      """;
+    Files.writeString(tempDir.resolve("data.csv"), csv);
+    Files.writeString(tempDir.resolve("datapackage.json"), """
+      {
+        "name": "pk-violations",
+        "resources": [{
+          "name": "data",
+          "path": "data.csv",
+          "schema": {
+            "fields": [
+              { "name": "id",    "type": "string", "missingValues": ["NA"] },
+              { "name": "score", "type": "number",  "missingValues": ["-1"] }
+            ],
+            "primaryKey": "id"
+          }
+        }]
+      }
+  """);
+
+    List<ResourceAnalysisResult> results = analyser.analyse(
+      descriptorLocation(), ValidationOptions.defaults(),
+      List.of(AnalysisFeature.PRIMARY_KEY_UNIQUE));
+
+    PrimaryKeyViolation violation = results.get(0).primaryKeyViolation();
+    assertNotNull(violation);
+    assertEquals("data", violation.resource());
+    // 1 duplicate rows (id=1,1) + 2 missing rows (empty -> NULL, "NA" -> declared missing) = 3
+    assertEquals(3, violation.violationCount());
   }
 
   @Test

@@ -38,6 +38,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -178,42 +179,108 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
   }
 
   private long countRows(Connection connection, ResourceDescriptor resource) throws SQLException {
-    try (PreparedStatement ps = connection.prepareStatement(
-      "SELECT COUNT(*) FROM " + q(resource.name()));
-         ResultSet rs = ps.executeQuery()) {
-      rs.next();
-      return rs.getLong(1);
-    }
+    return scalarCount(connection, "SELECT COUNT(*) FROM " + q(resource.name()));
   }
 
   private PrimaryKeyViolation findPrimaryKeyViolation(
     ValidationOptions options, ResourceDescriptor resource, Connection connection)
     throws SQLException {
     if (resource.schema().primaryKey() == null) {
+      log.debug("No primary key for {}, skipping...", resource.name());
       return null;
     }
 
-    String keyFields = resource.schema().primaryKey().keys().stream()
-      .map(DuckDbRenderUtils::q).collect(Collectors.joining(", "));
+    List<String> keys = resource.schema().primaryKey().keys();
+    String keyFields = keys.stream().map(DuckDbRenderUtils::q).collect(Collectors.joining(", "));
     String violationSql = "SELECT COUNT(*), " + keyFields
-      + " FROM " + q(resource.name())
-      + " GROUP BY " + keyFields + " HAVING COUNT(*) > 1";
-    String countSql = "SELECT COUNT(*) FROM (" + violationSql + ")";
+                          + " FROM " + q(resource.name())
+                          + " GROUP BY " + keyFields + " HAVING COUNT(*) > 1";
 
-    long count;
-    try (PreparedStatement ps = connection.prepareStatement(countSql);
+    long duplicateCount = scalarCount(connection, "SELECT COUNT(*) FROM (" + violationSql + ")",
+                                      e -> String.format("Failed to check duplicate primary keys for resource:[%s], sql:[%s], cause:[%s]",
+                                                         resource.name(), violationSql, e.getMessage()));
+
+    String missingPredicate = getMissingPredicate(resource, connection, keys);
+    String missingSql = "SELECT COUNT(*) FROM " + q(resource.name()) + " WHERE " + missingPredicate;
+    long missingCount = scalarCount(connection, missingSql,
+                                    e -> String.format("Failed to check missing primary keys for resource:[%s], sql:[%s], cause:[%s]",
+                                                       resource.name(), missingSql, e.getMessage()));
+
+    long totalCount = duplicateCount + missingCount;
+    if (totalCount == 0) {
+      return null;
+    }
+
+    SampleBudget budget = allocateSampleBudget(options.sampleSize(), duplicateCount, missingCount);
+    List<Map<String, Object>> samples = new ArrayList<>();
+    if (budget.duplicateLimit() > 0) {
+      samples.addAll(fetchSampleRows(connection, violationSql + " LIMIT " + budget.duplicateLimit()));
+    }
+    if (budget.missingLimit() > 0) {
+      samples.addAll(fetchSampleRows(connection,
+                                     "SELECT * FROM " + q(resource.name()) + " WHERE " + missingPredicate
+                                     + " LIMIT " + budget.missingLimit()));
+    }
+
+    return new PrimaryKeyViolation(resource.name(), keys, totalCount, samples);
+  }
+
+  private String getMissingPredicate(ResourceDescriptor resource, Connection connection, List<String> keys) {
+    String missingPredicate = keys.stream()
+      .map(key -> resolveField(resource, key))
+      .map(field -> {
+        try {
+          return buildIsMissingPredicate(
+            field.name(), resolveCompatibleMissingLiterals(connection, resource.name(), field));
+        } catch (SQLException e) {
+          String message = String.format("SQL Exception trying to find resolve missingPredicate type, cause:[%s]", e.getMessage());
+          throw new RuntimeException(message, e);
+        }
+      })
+      .collect(Collectors.joining(" OR "));
+    return missingPredicate;
+  }
+
+  private FieldDescriptor resolveField(ResourceDescriptor resource, String fieldName) {
+    return resource.schema().fields().stream()
+      .filter(f -> f.name().equals(fieldName))
+      .findFirst()
+      .orElseThrow(() -> new IllegalStateException(
+        "Primary key field [" + fieldName + "] not found in schema for resource [" + resource.name() + "]"));
+  }
+
+  private static long scalarCount(Connection connection, String sql) throws SQLException {
+    return scalarCount(connection, sql,
+                       e -> String.format("Failed to execute count query, sql:[%s], cause:[%s]", sql, e.getMessage()));
+  }
+
+  private static long scalarCount(
+    Connection connection, String sql, Function<Exception, String> errorMessage) throws SQLException {
+    try (PreparedStatement ps = connection.prepareStatement(sql);
          ResultSet rs = ps.executeQuery()) {
       rs.next();
-      count = rs.getLong(1);
+      return rs.getLong(1);
+    } catch (SQLException e) {
+      throw new SQLException(errorMessage.apply(e), e);
     }
+  }
 
-    if (count == 0) {
-      return null;
+  private record SampleBudget(int duplicateLimit, int missingLimit) {}
+
+  private static SampleBudget allocateSampleBudget(int totalLimit, long duplicateCount, long missingCount) {
+    int half = totalLimit / 2;
+    int wantDup = (int) Math.min(half, duplicateCount);
+    int wantMissing = (int) Math.min(half, missingCount);
+    int leftover = totalLimit - wantDup - wantMissing;
+
+    if (leftover > 0) {
+      int dupRoom = (int) Math.min(leftover, duplicateCount - wantDup);
+      wantDup += dupRoom;
+      leftover -= dupRoom;
+      int missingRoom = (int) Math.min(leftover, missingCount - wantMissing);
+      wantMissing += missingRoom;
     }
-    List<Map<String, Object>> samples =
-      fetchSampleRows(connection, violationSql + " LIMIT " + options.sampleSize());
-
-    return new PrimaryKeyViolation(resource.name(), resource.schema().primaryKey().keys(), count, samples);
+    return new SampleBudget(wantDup, wantMissing);
   }
 
   private List<ForeignKeyViolation> findForeignKeyViolations(
@@ -245,21 +312,10 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
         resource.name(), key.fields(), parentName, ref.fields(), 0L, List.of());
     }
 
-    String countSql =
-      buildViolationCountSql(resource.name(), key.fields(), parent.name(), ref.fields());
-    long count;
-    try (PreparedStatement ps = connection.prepareStatement(countSql);
-         ResultSet rs = ps.executeQuery()) {
-      rs.next();
-      count = rs.getLong(1);
-    } catch (Exception e) {
-      String message = String.format("Failed to validate foreign key:[%s], sql:[%s], cause:[%s]",
-        key.reference().resource(),
-        countSql,
-        e.getMessage()
-        );
-      throw new SQLException(message, e);
-    }
+    String countSql = buildViolationCountSql(resource.name(), key.fields(), parent.name(), ref.fields());
+    long count = scalarCount(connection, countSql,
+                             e -> String.format("Failed to validate foreign key:[%s], sql:[%s], cause:[%s]",
+                                                key.reference().resource(), countSql, e.getMessage()));
 
     List<Map<String, Object>> samples = count == 0 ? List.of()
       : fetchSampleRows(connection,
@@ -285,15 +341,70 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
     }
   }
 
-  private String buildMissingValueWhere(FieldDescriptor field) {
-    List<String> castable = field.missingValues().stream()
+  private String buildIsMissingPredicate(String fieldName, List<String> compatibleLiterals) {
+    String col = q(fieldName);
+    return compatibleLiterals.isEmpty()
+      ? "(" + col + " IS NULL)"
+      : "(" + col + " IS NULL OR " + col + " IN (" + String.join(", ", compatibleLiterals) + "))";
+  }
+
+  private List<String> missingValueLiterals(FieldDescriptor field) {
+    return field.missingValues().stream()
       .filter(mv -> !mv.rawValue().isEmpty())
       .filter(mv -> !"null".equalsIgnoreCase(mv.rawValue()))
       .filter(mv -> castable(mv.rawValue(), field.type()))
       .map(mv -> sq(mv.rawValue()))
       .toList();
-    if (castable.isEmpty()) return "";
-    return " WHERE " + q(field.name()) + " NOT IN (" + String.join(", ", castable) + ")";
+  }
+
+  private String buildMissingValueWhere(FieldDescriptor field) {
+    List<String> literals = missingValueLiterals(field);
+    if (literals.isEmpty()) return "";
+    return " WHERE " + q(field.name()) + " NOT IN (" + String.join(", ", literals) + ")";
+  }
+
+  private String buildIsMissingPredicate(FieldDescriptor field) {
+    List<String> literals = missingValueLiterals(field);
+    String col = q(field.name());
+    return literals.isEmpty()
+      ? "(" + col + " IS NULL)"
+      : "(" + col + " IS NULL OR " + col + " IN (" + String.join(", ", literals) + "))";
+  }
+
+  private String columnType(Connection connection, String resourceName, String fieldName)
+    throws SQLException {
+    String sql = "SELECT data_type FROM information_schema.columns"
+                 + " WHERE table_name = " + sq(resourceName) + " AND column_name = " + sq(fieldName);
+    try (PreparedStatement ps = connection.prepareStatement(sql);
+         ResultSet rs = ps.executeQuery()) {
+      if (!rs.next()) {
+        throw new SQLException("Column [" + fieldName + "] not found for resource [" + resourceName + "]");
+      }
+      return rs.getString(1);
+    }
+  }
+
+  private List<String> resolveCompatibleMissingLiterals(
+    Connection connection, String resourceName, FieldDescriptor field) throws SQLException {
+    List<String> literals = missingValueLiterals(field);
+    if (literals.isEmpty()) return literals;
+
+    String columnType = columnType(connection, resourceName, field.name());
+    List<String> compatible = new ArrayList<>();
+    for (String literal : literals) {
+      String sql = "SELECT TRY_CAST(" + literal + " AS " + columnType + ") IS NOT NULL";
+      try (PreparedStatement ps = connection.prepareStatement(sql);
+           ResultSet rs = ps.executeQuery()) {
+        rs.next();
+        if (rs.getBoolean(1)) {
+          compatible.add(literal);
+        } else {
+          log.debug("Missing value {} incompatible with column {} ({}), skipping",
+                    literal, field.name(), columnType);
+        }
+      }
+    }
+    return compatible;
   }
 
   private boolean castable(String value, String type) {

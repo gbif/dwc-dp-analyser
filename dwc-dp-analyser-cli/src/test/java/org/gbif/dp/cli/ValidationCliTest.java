@@ -56,7 +56,7 @@ class ValidationCliTest {
     int exitCode = ValidationCli.run(new String[]{ tempDir.resolve("datapackage.json").toString() });
 
     assertEquals(0, exitCode);
-    assertTrue(capturedOut.toString().contains("All validations passed."));
+    assertTrue(capturedOut.toString().contains("Result: VALID"));
   }
 
   @Test
@@ -78,6 +78,7 @@ class ValidationCliTest {
 
     assertEquals(2, exitCode);
     assertTrue(capturedOut.toString().contains("Type violation"));
+    assertTrue(capturedOut.toString().contains("Result: INVALID"));
   }
 
   @Test
