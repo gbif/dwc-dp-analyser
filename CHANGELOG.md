@@ -2,6 +2,25 @@
 
 All notable changes to `dwc-dp-analyser` are documented in this file.
 
+## [0.0.10] - 2026-08-10
+
+### Fixed
+- Primary key validation now also flags `NULL` primary key values, not just duplicates.
+- CLI text output (`--output-format text`, the default) now reports whether the dataset is valid — previously this was only visible via exit code — and now includes primary key violations in the report, which were silently omitted before.
+
+## [0.0.9] - 2026-07-30
+
+### Fixed
+- CSV loading no longer forces a full-file type sniff (`sample_size=-1`) on every resource, which was doubling I/O regardless of whether it was needed. Resources now load with sampled auto-detection first, and only retry with `all_varchar=true` on a conversion error — since type conformance is independently re-validated downstream via `TRY_CAST` anyway, the upfront sniff was never load-bearing.
+- Data type validation was running at O(n²) across all resources per resource; fixed to scale linearly.
+- Descriptor errors are now printed when analysis cannot proceed, instead of failing silently.
+- Added `http`→`https` aliasing for profile URIs.
+- Added alias for the `1.0` profile to `1.0_DEV` until `1.0` is officially released; fixed networknt validator keyword warnings and JSON Schema version selection (draft-4 vs 2020-12) based on the profile's declared schema version.
+- Various release script and macOS tag-format fixes.
+
+### Changed
+- `release.sh` now also updates the Homebrew tap repo as part of a release.
+
 ## [0.0.8] - 2026-07-14 — First official release
 
 This is the first release distributed as a pre-packaged install rather than a bare jar.
