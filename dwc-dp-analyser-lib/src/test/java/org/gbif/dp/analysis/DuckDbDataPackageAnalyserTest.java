@@ -30,7 +30,9 @@ import org.gbif.dp.common.descriptor.JacksonDataPackageParser;
 import org.gbif.dp.common.io.DataPackageSource;
 import org.gbif.dp.validator.api.DescriptorValidationResult;
 import org.gbif.dp.validator.api.EmlValidationResult;
+import org.gbif.dp.validator.api.ValidationIssue;
 import org.gbif.dp.validator.frictionless.DescriptorValidator;
+import org.gbif.dp.validator.frictionless.FrictionlessDescriptorValidator;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -42,8 +44,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -549,6 +549,35 @@ class DuckDbDataPackageAnalyserTest {
 
     assertTrue(e.getMessage().contains("data"), "Message should name the resource");
     assertTrue(e.getMessage().contains("data.csv"), "Message should name the declared path");
+  }
+
+  @Test
+  void shouldBlockDataAnalysisWhenDeclaredResourceFileIsMissing() throws Exception {
+    // No data.csv actually written — only the descriptor declares it.
+    Files.writeString(tempDir.resolve("datapackage.json"), """
+      { "name": "missing-resource-test", "resources": [{
+        "name": "data", "path": "data.csv",
+        "schema": { "fields": [{ "name": "id", "type": "integer" }]}
+      }]}
+      """);
+
+    DataPackageAnalysisOrchestrator realOrchestrator = new DefaultDataPackageAnalysisOrchestrator(
+      analyser, new FrictionlessDescriptorValidator(), NO_OP_EML_VALIDATOR);
+
+    DatapackageAnalysisResult result = realOrchestrator.analyse(
+      descriptorLocation(), ValidationOptions.defaults(), AnalysisFeature.ALL_FEATURES);
+
+    assertFalse(result.descriptorValidation().canProceedToDataAnalysis(),
+                "a missing declared resource file must block data analysis");
+    assertFalse(result.descriptorValidation().valid());
+    assertTrue(result.resourceAnalysisResults().isEmpty(),
+               "DataAnalyser must never be invoked when the descriptor can't proceed");
+    assertFalse(DatapackageAnalysisResult.isValid(result));
+
+    boolean hasPathNotFound = result.descriptorValidation().issues().stream()
+      .anyMatch(i -> i.code().equals("PATH_NOT_FOUND")
+                     && i.severity() == ValidationIssue.Severity.ERROR);
+    assertTrue(hasPathNotFound, "issue must carry PATH_NOT_FOUND at ERROR severity, not just be present");
   }
 
   private ColumnStatistics getColumnStats(
