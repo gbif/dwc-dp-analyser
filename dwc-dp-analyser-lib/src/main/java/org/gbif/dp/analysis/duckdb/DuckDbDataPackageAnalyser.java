@@ -62,6 +62,16 @@ public class DuckDbDataPackageAnalyser implements DataAnalyser {
 
   private static final Logger log = LoggerFactory.getLogger(DuckDbDataPackageAnalyser.class);
 
+  /// Register the DuckDB JDBC driver, ensuring it is available
+  static {
+    try {
+      Class.forName("org.duckdb.DuckDBDriver");
+    } catch (ClassNotFoundException e) {
+      throw new ExceptionInInitializerError(
+        "DuckDB JDBC driver not found on classpath: " + e.getMessage());
+    }
+  }
+
   private final DataPackageParser parser;
   private final DuckDbResourceLoader resourceLoader;
   private final DuckDbDataTypeValidator dataTypeValidator;
