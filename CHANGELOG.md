@@ -2,6 +2,14 @@
 
 All notable changes to `dwc-dp-analyser` are documented in this file.
 
+## [unreleased]
+
+### Fixed
+- Ensure registration of `jdbc:duckdb` which in rare cases, eg. in tomcat would not allow a session without explicit registration
+
+### Changed
+- Updated Duckdb from 0.10.0 -> 1.5.5.0
+
 ## [0.0.10] - 2026-08-10
 
 ### Fixed
