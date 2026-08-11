@@ -51,4 +51,10 @@ public interface DataPackageAnalysisOrchestrator {
     String descriptorLocation,
     ValidationOptions options,
     List<AnalysisFeature> features) throws IOException, SQLException;
+
+  AnalysisExecution<DatapackageAnalysisResult> analyseWithFullReport(
+    String descriptorLocation,
+    ValidationOptions options,
+    List<AnalysisFeature> features
+  ) throws IOException, SQLException;
 }

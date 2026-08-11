@@ -13,7 +13,9 @@
  */
 package org.gbif.dp.analysis;
 
+import org.gbif.dp.analysis.api.AnalysisExecution;
 import org.gbif.dp.analysis.api.AnalysisFeature;
+import org.gbif.dp.analysis.api.AnalysisMetadata;
 import org.gbif.dp.analysis.api.DataAnalyser;
 import org.gbif.dp.analysis.api.DataPackageAnalysisOrchestrator;
 import org.gbif.dp.analysis.api.DatapackageAnalysisResult;
@@ -28,6 +30,8 @@ import org.gbif.dp.validator.frictionless.DescriptorValidator;
 
 import java.io.IOException;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -101,6 +105,27 @@ public class DefaultDataPackageAnalysisOrchestrator implements DataPackageAnalys
     var resourceResults = dataAnalyser.analyse(descriptorLocation, options, features);
 
     return new DatapackageAnalysisResult(descriptorResult, emlResult, resourceResults);
+  }
+
+  @Override
+  public AnalysisExecution<DatapackageAnalysisResult> analyseWithFullReport(
+    String descriptorLocation,
+    ValidationOptions options,
+    List<AnalysisFeature> features
+  ) throws IOException, SQLException {
+
+    LocalDateTime started = LocalDateTime.now(ZoneId.of("UTC"));
+    DatapackageAnalysisResult analysisResult = analyse(descriptorLocation, options, features);
+    LocalDateTime finished = LocalDateTime.now(ZoneId.of("UTC"));
+
+    AnalysisMetadata analysisMetadata = new AnalysisMetadata(
+      started, finished, features, DatapackageAnalysisResult.isValid(analysisResult)
+    );
+
+    return new AnalysisExecution<>(
+      analysisResult,
+      analysisMetadata
+    );
   }
 
   private EmlValidationResult runEmlValidation(DataPackageSource source, List<AnalysisFeature> features) {
