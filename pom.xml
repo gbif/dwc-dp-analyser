@@ -46,6 +46,7 @@
     <module>dwc-dp-analyser-cli</module>
     <module>dwc-dp-descriptor</module>
     <module>dwc-dp-common</module>
+    <module>dwc-dp-analyser-schema</module>
   </modules>
 
   <properties>
@@ -63,6 +64,7 @@
     <junit.version>5.11.4</junit.version>
     <networknt.version>2.0.1</networknt.version>
     <dwc-dp-schemas.version>0.0.2</dwc-dp-schemas.version>
+    <jsonschema-generator.version>5.0.0</jsonschema-generator.version>
   </properties>
 
   <repositories>

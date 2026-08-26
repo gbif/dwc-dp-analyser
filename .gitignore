@@ -39,3 +39,6 @@ build/
 /packaging/staging/
 /dist/
 /Formula/
+
+# Ignore generated json schema
+*.schema.json
