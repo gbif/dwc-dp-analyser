@@ -82,7 +82,11 @@ public class DwcDpProfileRegistry {
       List.of(
         "https://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
         "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
-        "http://dwc-prerelease.rs.tdwg.org/dwc-dp/1.0_DEV/dwc-dp-profile.json"))
+        "https://rs.tdwg.org/dwc/dwc-dp/1.0/dwc-dp-profile.json",
+        "http://rs.tdwg.org/dwc/dwc-dp/1.0/dwc-dp-profile.json",
+        "http://dwc-prerelease.rs.tdwg.org/dwc-dp/1.0_DEV/dwc-dp-profile.json"
+      )
+    )
   );
 
   private final Map<String, DwcDpSchemaVersion> byProfileUri;
