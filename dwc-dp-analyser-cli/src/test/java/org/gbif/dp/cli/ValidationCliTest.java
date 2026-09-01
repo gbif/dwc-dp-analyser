@@ -100,11 +100,11 @@ class ValidationCliTest {
     assertEquals(0, exitCode);
     String output = capturedOut.toString();
     ObjectMapper mapper = new ObjectMapper();
-    JsonNode json = mapper.readTree(output); // throws if not valid JSON
+    JsonNode json = mapper.readTree(output); // throws if not isValid JSON
     assertTrue(json.has("result"));
     assertTrue(json.has("durationSeconds"));
-    assertTrue(json.has("valid"));
-    assertTrue(json.get("valid").asBoolean());
+    assertTrue(json.has("isValid"));
+    assertTrue(json.get("isValid").asBoolean());
   }
 
   @Test
@@ -129,7 +129,7 @@ class ValidationCliTest {
 
     assertEquals(2, exitCode);
     JsonNode json = new ObjectMapper().readTree(capturedOut.toString());
-    assertFalse(json.get("result").path("valid").asBoolean());
+    assertFalse(json.get("result").path("isValid").asBoolean());
     assertFalse(json.get("result").path("dataTypeViolations").isNull());
   }
 

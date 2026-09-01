@@ -43,8 +43,8 @@ class EmlValidatorTest {
   void shouldReturnAbsentWhenNoEmlFile() throws Exception {
     try (var src = source()) {
       EmlValidationResult result = validator.validate(src);
-      assertFalse(result.emlPresent());
-      assertTrue(result.valid());
+      assertFalse(result.isPresent());
+      assertTrue(result.isValid());
       assertTrue(result.issues().isEmpty());
     }
   }
@@ -54,8 +54,8 @@ class EmlValidatorTest {
     Files.writeString(tempDir.resolve("eml.xml"), "<eml><unclosed>");
     try (var src = source()) {
       EmlValidationResult result = validator.validate(src);
-      assertTrue(result.emlPresent());
-      assertFalse(result.valid());
+      assertTrue(result.isPresent());
+      assertFalse(result.isValid());
       assertTrue(result.issues().stream().anyMatch(i ->
                                                      i.violationType() == DescriptorViolationType.INVALID_XML
                                                      && i.severity() == ValidationIssue.Severity.ERROR
@@ -76,7 +76,7 @@ class EmlValidatorTest {
       """);
     try (var src = source()) {
       EmlValidationResult result = validator.validate(src);
-      assertTrue(result.emlPresent());
+      assertTrue(result.isPresent());
       assertTrue(result.issues().stream().anyMatch(i ->
                                                      i.violationType() == DescriptorViolationType.EML_MISSING_TITLE
                                                      && i.severity() == ValidationIssue.Severity.WARNING
@@ -97,7 +97,7 @@ class EmlValidatorTest {
       """);
     try (var src = source()) {
       EmlValidationResult result = validator.validate(src);
-      assertTrue(result.emlPresent());
+      assertTrue(result.isPresent());
       assertTrue(result.issues().stream().anyMatch(i ->
                                                      i.violationType() == DescriptorViolationType.EML_MISSING_CREATOR
                                                      && i.severity() == ValidationIssue.Severity.WARNING
@@ -119,7 +119,7 @@ class EmlValidatorTest {
       """);
     try (var src = source()) {
       EmlValidationResult result = validator.validate(src);
-      assertTrue(result.emlPresent());
+      assertTrue(result.isPresent());
       assertTrue(result.issues().stream().noneMatch(i ->
                                                       i.violationType() == DescriptorViolationType.INVALID_XML
                                                       || i.violationType() == DescriptorViolationType.EML_MISSING_TITLE
@@ -141,7 +141,7 @@ class EmlValidatorTest {
       """);
     try (var src = source()) {
       EmlValidationResult result = validator.validate(src);
-      assertTrue(result.emlPresent());
+      assertTrue(result.isPresent());
       boolean xsdViolation = result.issues().stream()
         .anyMatch(i -> i.violationType() == DescriptorViolationType.EML_XSD_VIOLATION);
       boolean xsdUnavailable = result.issues().stream()

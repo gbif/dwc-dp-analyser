@@ -226,7 +226,7 @@ class DuckDbDataPackageAnalyserTest {
     ResourceAnalysisResult resource = results.stream()
       .filter(r -> r.name().equalsIgnoreCase("data")).findFirst()
       .orElseThrow(() -> new AssertionError("Resource[data] not found"));
-    ColumnStatistics scoreStats = resource.columnAnalyses().stream()
+    ColumnStatistics scoreStats = resource.columnStatistics().stream()
       .filter(c -> c.name().equalsIgnoreCase("score")).findFirst()
       .orElseThrow(() -> new AssertionError("[data][score] not found"));
 
@@ -241,7 +241,7 @@ class DuckDbDataPackageAnalyserTest {
     List<ResourceAnalysisResult> results = analyser.analyse(
       descriptorLocation(), ValidationOptions.defaults(),
       List.of(AnalysisFeature.DATA_TYPE_CONSTRAINT));
-    assertTrue(results.stream().allMatch(r -> r.columnAnalyses().isEmpty()),
+    assertTrue(results.stream().allMatch(r -> r.columnStatistics().isEmpty()),
                "No counting etc for any of the data files");
   }
 
@@ -567,9 +567,9 @@ class DuckDbDataPackageAnalyserTest {
     DatapackageAnalysisResult result = realOrchestrator.analyse(
       descriptorLocation(), ValidationOptions.defaults(), AnalysisFeature.ALL_FEATURES);
 
-    assertFalse(result.descriptorValidation().canProceedToDataAnalysis(),
+    assertFalse(result.descriptorValidation().hasDataAnalysis(),
                 "a missing declared resource file must block data analysis");
-    assertFalse(result.descriptorValidation().valid());
+    assertFalse(result.descriptorValidation().isValid());
     assertTrue(result.resourceAnalysisResults().isEmpty(),
                "DataAnalyser must never be invoked when the descriptor can't proceed");
     assertFalse(DatapackageAnalysisResult.isValid(result));
@@ -585,7 +585,7 @@ class DuckDbDataPackageAnalyserTest {
     return results.stream()
       .filter(r -> r.name().equalsIgnoreCase(resource)).findFirst()
       .orElseThrow(() -> new AssertionError("Resource not found: " + resource))
-      .columnAnalyses().stream()
+      .columnStatistics().stream()
       .filter(c -> c.name().equalsIgnoreCase(column)).findFirst()
       .orElseThrow(() -> new AssertionError("Column not found: " + column));
   }

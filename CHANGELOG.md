@@ -2,6 +2,12 @@
 
 All notable changes to `dwc-dp-analyser` are documented in this file.
 
+## [0.0.13]
+
+### Changed
+- Changed several report fields of type boolean to format `isX` or `hasX`
+- Changed report field `columnAnalysis` to `columnStatistics`
+
 ## [0.0.12]
 
 ### Changed

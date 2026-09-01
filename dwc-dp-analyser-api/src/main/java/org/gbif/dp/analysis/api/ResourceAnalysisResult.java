@@ -20,7 +20,7 @@ public record ResourceAnalysisResult(
         List<ForeignKeyViolation> foreignKeyViolations,
         PrimaryKeyViolation primaryKeyViolation,
         List<DataTypeViolation> dataTypeViolations,
-        List<ColumnStatistics> columnAnalyses,
+        List<ColumnStatistics> columnStatistics,
         long totalRows
 ) {
 

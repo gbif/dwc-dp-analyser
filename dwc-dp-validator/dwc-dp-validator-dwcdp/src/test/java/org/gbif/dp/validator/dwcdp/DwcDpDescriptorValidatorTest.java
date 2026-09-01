@@ -119,7 +119,7 @@ class DwcDpDescriptorValidatorTest {
         }
         """.formatted(PROFILE_0_1))) {
       DescriptorValidationResult result = validator.validate(src);
-      assertTrue(result.valid(), "Expected no errors, got: " + DescriptorValidationResult.errors(result));
+      assertTrue(result.isValid(), "Expected no errors, got: " + DescriptorValidationResult.errors(result));
     }
   }
 

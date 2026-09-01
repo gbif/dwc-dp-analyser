@@ -30,7 +30,7 @@ public enum DescriptorViolationType {
     "The datapackage.json file does not exist at the given path."),
 
   INVALID_JSON(
-    "The datapackage.json is not valid JSON."),
+    "The datapackage.json is not isValid JSON."),
 
   MISSING_RESOURCES(
     "The 'resources' array is absent or empty — no data can be analysed."),

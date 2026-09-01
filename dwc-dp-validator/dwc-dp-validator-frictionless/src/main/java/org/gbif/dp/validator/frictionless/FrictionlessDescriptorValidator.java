@@ -103,7 +103,7 @@ public class FrictionlessDescriptorValidator implements DescriptorValidator {
     } catch (Exception e) {
       return DescriptorValidationResult.of(List.of(issue(
         DescriptorViolationType.INVALID_JSON,
-        "datapackage.json is not valid JSON: " + e.getMessage(),
+        "datapackage.json is not isValid JSON: " + e.getMessage(),
         null, detail("parseError", e.getMessage()))));
     }
 

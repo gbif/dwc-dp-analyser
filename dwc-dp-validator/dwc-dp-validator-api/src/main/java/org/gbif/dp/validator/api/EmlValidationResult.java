@@ -22,14 +22,14 @@ import java.util.List;
  *
  * <p><strong>Jackson safety:</strong> static helpers only — no instance methods.
  *
- * @param emlPresent true if an eml.xml was found alongside the descriptor
- * @param issues     all issues found (empty when emlPresent=false)
- * @param valid      true when no ERRORs are present (absence counts as valid)
+ * @param isPresent true if an eml.xml was found alongside the descriptor
+ * @param issues     all issues found (empty when isPresent=false)
+ * @param isValid      true when no ERRORs are present (absence counts as isValid)
  */
 public record EmlValidationResult(
-  boolean emlPresent,
+  boolean isPresent,
   List<ValidationIssue> issues,
-  boolean valid) {
+  boolean isValid) {
 
   public static List<ValidationIssue> errors(EmlValidationResult r) {
     return r.issues().stream()
@@ -43,7 +43,7 @@ public record EmlValidationResult(
       .toList();
   }
 
-  /** EML file was not found — valid per spec (eml.xml is optional). */
+  /** EML file was not found — isValid per spec (eml.xml is optional). */
   public static EmlValidationResult absent() {
     return new EmlValidationResult(false, List.of(), true);
   }

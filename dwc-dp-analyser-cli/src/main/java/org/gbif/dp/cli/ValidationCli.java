@@ -176,15 +176,15 @@ public class ValidationCli {
     ObjectMapper mapper = new ObjectMapper();
     Map<String, Object> output = new LinkedHashMap<>();
     output.put("durationSeconds", duration.toSeconds());
-    output.put("valid", DatapackageAnalysisResult.isValid(result));
-    if (mode == Config.ReportMode.STATS && result.descriptorValidation().canProceedToDataAnalysis()) {
+    output.put("isValid", DatapackageAnalysisResult.isValid(result));
+    if (mode == Config.ReportMode.STATS && result.descriptorValidation().hasDataAnalysis()) {
       List<ResourceAnalysisResult> onlyStats = result.resourceAnalysisResults().stream()
         .map(resourceResult -> new ResourceAnalysisResult(
           resourceResult.name(),
           List.of(),
           null,
           List.of(),
-          resourceResult.columnAnalyses(),
+          resourceResult.columnStatistics(),
           resourceResult.totalRows()
         ))
         .toList();
@@ -211,7 +211,7 @@ public class ValidationCli {
   private static void printText(DatapackageAnalysisResult result, Duration duration, Config.ReportMode mode) {
     System.out.println("Printing " + mode.name() + " report.");
     var descriptor = result.descriptorValidation();
-    if (!descriptor.canProceedToDataAnalysis()) {
+    if (!descriptor.hasDataAnalysis()) {
       System.out.println("Data analysis skipped due to blocking descriptor errors.");
       printDescriptorIssues(descriptor);
       printValidity(result);
@@ -250,7 +250,7 @@ public class ValidationCli {
 
   private static void printEmlIssues(DatapackageAnalysisResult result) {
     EmlValidationResult eml = result.emlValidation();
-    if (!eml.emlPresent() || eml.issues().isEmpty()) {
+    if (!eml.isPresent() || eml.issues().isEmpty()) {
       return;
     }
 
@@ -315,15 +315,15 @@ public class ValidationCli {
 
   private static void printStatisticsTable(List<ResourceAnalysisResult> resources) {
     for (ResourceAnalysisResult resource : resources) {
-      if (resource.columnAnalyses() == null || resource.columnAnalyses().isEmpty()) continue;
+      if (resource.columnStatistics() == null || resource.columnStatistics().isEmpty()) continue;
 
-      int nameWidth = resource.columnAnalyses().stream()
+      int nameWidth = resource.columnStatistics().stream()
         .mapToInt(c -> c.name().length()).max().orElse(4);
       nameWidth = Math.max(nameWidth, 5);
 
-      long maxPop = resource.columnAnalyses().stream()
+      long maxPop = resource.columnStatistics().stream()
         .mapToLong(ColumnStatistics::populatedValues).max().orElse(0);
-      long maxUniq = resource.columnAnalyses().stream()
+      long maxUniq = resource.columnStatistics().stream()
         .mapToLong(ColumnStatistics::uniqueValues).max().orElse(0);
       int popWidth  = Math.max(String.valueOf(maxPop).length(),  9);
       int uniqWidth = Math.max(String.valueOf(maxUniq).length(), 6);
@@ -339,7 +339,7 @@ public class ValidationCli {
       System.out.printf(fmt, "Field", "Total", "Populated", "Unique", "Fill%");
       System.out.println(divider);
 
-      for (ColumnStatistics col : resource.columnAnalyses()) {
+      for (ColumnStatistics col : resource.columnStatistics()) {
         String pct = resource.totalRows() > 0
           ? String.format("%.1f%%", 100.0 * col.populatedValues() / resource.totalRows())
           : "N/A";

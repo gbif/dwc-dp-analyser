@@ -24,15 +24,15 @@ import java.util.Set;
  * to avoid accidental serialisation as JSON properties.
  *
  * @param issues                   all issues found, in discovery order
- * @param valid                    true when there are no ERRORs
- * @param canProceedToDataAnalysis true unless a blocking ERROR prevents loading resources
+ * @param isValid                    true when there are no ERRORs
+ * @param hasDataAnalysis true unless a blocking ERROR prevents loading resources
  *                                 (DESCRIPTOR_NOT_FOUND, INVALID_JSON, MISSING_RESOURCES,
  *                                 PATH_NOT_FOUND)
  */
 public record DescriptorValidationResult(
   List<ValidationIssue> issues,
-  boolean valid,
-  boolean canProceedToDataAnalysis) {
+  boolean isValid,
+  boolean hasDataAnalysis) {
 
   /** Codes whose presence means data analysis cannot proceed. */
   private static final Set<String> BLOCKING_CODES = Set.of(
@@ -55,7 +55,7 @@ public record DescriptorValidationResult(
       .toList();
   }
 
-  /** Build a result from a list of issues, deriving valid and canProceed automatically. */
+  /** Build a result from a list of issues, deriving isValid and canProceed automatically. */
   public static DescriptorValidationResult of(List<ValidationIssue> issues) {
     boolean valid = issues.stream()
       .noneMatch(i -> i.severity() == ValidationIssue.Severity.ERROR);

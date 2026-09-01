@@ -90,7 +90,7 @@ public class DefaultDataPackageAnalysisOrchestrator implements DataPackageAnalys
         log.debug("Validating descriptor: {}", descriptorLocation);
         descriptorResult = descriptorValidator.validate(source);
 
-        if (!descriptorResult.canProceedToDataAnalysis()) {
+        if (!descriptorResult.hasDataAnalysis()) {
           log.warn("Descriptor validation blocked data analysis — {} blocking error(s)",
                    DescriptorValidationResult.errors(descriptorResult).size());
           emlResult = runEmlValidation(source, features);

@@ -42,18 +42,18 @@ class FrictionlessDescriptorValidatorTest {
     // no datapackage.json written — descriptor path still points at the tempDir
     try (var src = new FileSystemDataPackageSource(tempDir.resolve("missing.json"))) {
       DescriptorValidationResult result = validator.validate(src);
-      assertFalse(result.valid());
-      assertFalse(result.canProceedToDataAnalysis());
+      assertFalse(result.isValid());
+      assertFalse(result.hasDataAnalysis());
       assertTrue(hasCode(result, "DESCRIPTOR_NOT_FOUND"));
     }
   }
 
   @Test
   void shouldErrorOnInvalidJson() throws Exception {
-    try (var src = source("{ not valid json }")) {
+    try (var src = source("{ not isValid json }")) {
       DescriptorValidationResult result = validator.validate(src);
-      assertFalse(result.valid());
-      assertFalse(result.canProceedToDataAnalysis());
+      assertFalse(result.isValid());
+      assertFalse(result.hasDataAnalysis());
       assertTrue(hasCode(result, "INVALID_JSON"));
     }
   }
@@ -64,7 +64,7 @@ class FrictionlessDescriptorValidatorTest {
         { "name": "test" }
         """)) {
       DescriptorValidationResult result = validator.validate(src);
-      assertFalse(result.canProceedToDataAnalysis());
+      assertFalse(result.hasDataAnalysis());
       assertTrue(hasCode(result, "MISSING_RESOURCES"));
     }
   }
@@ -75,7 +75,7 @@ class FrictionlessDescriptorValidatorTest {
         { "name": "test", "resources": [] }
         """)) {
       DescriptorValidationResult result = validator.validate(src);
-      assertFalse(result.canProceedToDataAnalysis());
+      assertFalse(result.hasDataAnalysis());
       assertTrue(hasCode(result, "MISSING_RESOURCES"));
     }
   }
@@ -87,7 +87,7 @@ class FrictionlessDescriptorValidatorTest {
         { "resources": [{ "name": "data", "path": "data.csv" }] }
         """)) {
       DescriptorValidationResult result = validator.validate(src);
-      assertTrue(result.canProceedToDataAnalysis());
+      assertTrue(result.hasDataAnalysis());
       assertTrue(hasCode(result, "MISSING_NAME"));
       assertEquals(ValidationIssue.Severity.WARNING, severityOf(result, "MISSING_NAME"));
     }
@@ -102,7 +102,7 @@ class FrictionlessDescriptorValidatorTest {
         }
         """)) {
       DescriptorValidationResult result = validator.validate(src);
-      assertFalse(result.valid());
+      assertFalse(result.isValid());
       assertTrue(hasCode(result, "PATH_NOT_FOUND"));
     }
   }
@@ -116,7 +116,7 @@ class FrictionlessDescriptorValidatorTest {
         }
         """)) {
       DescriptorValidationResult result = validator.validate(src);
-      assertFalse(result.valid());
+      assertFalse(result.isValid());
       assertTrue(hasCode(result, "PATH_NOT_FOUND"));
     }
   }
@@ -135,7 +135,7 @@ class FrictionlessDescriptorValidatorTest {
         }
         """)) {
       DescriptorValidationResult result = validator.validate(src);
-      assertTrue(result.canProceedToDataAnalysis());
+      assertTrue(result.hasDataAnalysis());
       assertTrue(hasCode(result, "UNKNOWN_FIELD_TYPE"));
     }
   }
@@ -159,7 +159,7 @@ class FrictionlessDescriptorValidatorTest {
         }
         """)) {
       DescriptorValidationResult result = validator.validate(src);
-      assertTrue(result.canProceedToDataAnalysis());
+      assertTrue(result.hasDataAnalysis());
       assertTrue(hasCode(result, "FK_UNKNOWN_REFERENCE_RESOURCE"));
     }
   }
@@ -183,8 +183,8 @@ class FrictionlessDescriptorValidatorTest {
         }
         """)) {
       DescriptorValidationResult result = validator.validate(src);
-      assertTrue(result.valid());
-      assertTrue(result.canProceedToDataAnalysis());
+      assertTrue(result.isValid());
+      assertTrue(result.hasDataAnalysis());
       assertTrue(result.issues().isEmpty());
     }
   }

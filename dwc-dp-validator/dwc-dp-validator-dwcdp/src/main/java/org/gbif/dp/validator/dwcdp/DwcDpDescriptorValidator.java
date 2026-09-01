@@ -84,7 +84,7 @@ public class DwcDpDescriptorValidator implements DescriptorValidator {
     // Layer 0: Frictionless structural checks
     DescriptorValidationResult frictionlessResult = frictionlessValidator.validate(source);
 
-    if (!frictionlessResult.canProceedToDataAnalysis()
+    if (!frictionlessResult.hasDataAnalysis()
         && DescriptorValidationResult.errors(frictionlessResult).stream()
           .anyMatch(e -> e.violationType() == DescriptorViolationType.DESCRIPTOR_NOT_FOUND
                          || e.violationType() == DescriptorViolationType.INVALID_JSON)) {

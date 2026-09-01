@@ -18,7 +18,7 @@ import java.util.List;
 public record ResourceDescription(
         String name,
         List<ForeignKeyViolation> foreignKeyViolations,
-        List<ColumnStatistics> columnAnalyses,
+        List<ColumnStatistics> columnStatistics,
         long totalRows
 
 ) {

@@ -28,11 +28,11 @@ public record DatapackageAnalysisResult(
   List<ResourceAnalysisResult> resourceAnalysisResults) {
 
   /**
-   * Overall validity: descriptor must be valid AND all resources must pass data validation.
+   * Overall validity: descriptor must be isValid AND all resources must pass data validation.
    * EML issues are informational and do not affect overall validity (eml.xml is optional).
    */
   public static boolean isValid(DatapackageAnalysisResult result) {
-    if (!result.descriptorValidation().valid()) {
+    if (!result.descriptorValidation().isValid()) {
       return false;
     }
     return result.resourceAnalysisResults().stream()

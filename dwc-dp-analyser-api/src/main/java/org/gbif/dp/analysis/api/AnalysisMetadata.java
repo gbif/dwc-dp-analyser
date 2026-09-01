@@ -16,6 +16,6 @@ package org.gbif.dp.analysis.api;
 import java.time.LocalDateTime;
 import java.util.List;
 
-public record AnalysisMetadata(LocalDateTime started, LocalDateTime finished, List<AnalysisFeature> features, boolean valid) {
+public record AnalysisMetadata(LocalDateTime started, LocalDateTime finished, List<AnalysisFeature> features, boolean isValid) {
 
 }
