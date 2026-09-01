@@ -13,6 +13,10 @@
  */
 package org.gbif.dp.analysis.api;
 
-public record AnalysisExecution<T>(T result, AnalysisMetadata metadata) {
+public record AnalysisExecution<T>(T result, AnalysisMetadata metadata, String version) {
+
+  public AnalysisExecution(T result, AnalysisMetadata metadata) {
+    this(result, metadata, "1.0");
+  }
 
 }
