@@ -2,13 +2,19 @@
 
 All notable changes to `dwc-dp-analyser` are documented in this file.
 
-## [unreleased]
+## [0.0.12]
+
+### Changed
+- Added `version` for schema version to analysis execution report
+
+## [0.0.11]
 
 ### Fixed
 - Ensure registration of `jdbc:duckdb` which in rare cases, eg. in tomcat would not allow a session without explicit registration
 
 ### Changed
 - Updated Duckdb from 0.10.0 -> 1.5.5.0
+- Added `AnalysisExecution` as root analysis report, including `AnalysisMetadata` which includes UTC for start/stop, validity of the analysis and list of `AnalysisFeature` included in the report
 
 ## [0.0.10] - 2026-08-10
 
