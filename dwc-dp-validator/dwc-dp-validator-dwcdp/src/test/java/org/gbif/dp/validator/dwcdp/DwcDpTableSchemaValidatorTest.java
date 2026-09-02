@@ -87,6 +87,34 @@ class DwcDpTableSchemaValidatorTest {
   }
 
   @Test
+  void shouldReportDuplicateField() {
+    String json = """
+      {
+        "name": "test",
+        "resources": [{
+          "name": "occurrence",
+          "path": "occurrence.csv",
+          "schema": {
+            "fields": [
+              { "name": "occurrenceID",     "type": "integer" },
+              { "name": "eventID",          "type": "string"  },
+              { "name": "organismQuantity", "type": "string"  },
+              { "name": "organismQuantity", "type": "string"  }
+            ]
+           }
+        }]
+      }
+      """;
+
+    List<ValidationIssue> issues = validator.validate(json);
+
+    assertTrue(issues.stream().anyMatch(i ->
+        i.violationType() == DescriptorViolationType.FIELD_DUPLICATE
+        && i.message().contains("organismQuantity")),
+               "Expected FIELD_DUPLICATE for 'organismQuantity', got: " + issues);
+  }
+
+  @Test
   void shouldReportUnknownField() {
     String json = """
         {

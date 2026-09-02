@@ -23,7 +23,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +53,24 @@ public class DwcDpTableSchemaValidator {
   private static final Logger log = LoggerFactory.getLogger(DwcDpTableSchemaValidator.class);
 
   private static final String LEGACY_CLASSPATH_BASE = "/schemas/0.1";
+
+  private record FieldCheck(String name, DescriptorViolationType violationType) {}
+
+  private static final List<FieldCheck> REQUIRED_FIELD_CHECKS = List.of(
+    new FieldCheck("type", DescriptorViolationType.FIELD_TYPE_MISMATCH)
+  );
+
+  private static final List<FieldCheck> OPTIONAL_FIELD_CHECKS = List.of(
+    new FieldCheck("title", DescriptorViolationType.FIELD_DEFINITION_MISMATCH),
+    new FieldCheck("description", DescriptorViolationType.FIELD_DEFINITION_MISMATCH),
+    // new FieldCheck("comments", DescriptorViolationType.FIELD_MISMATCH),
+    // new FieldCheck("examples", DescriptorViolationType.FIELD_MISMATCH),
+    new FieldCheck("format", DescriptorViolationType.FIELD_DEFINITION_MISMATCH),
+    new FieldCheck("namespace", DescriptorViolationType.FIELD_DEFINITION_MISMATCH),
+    // new FieldCheck("rdfs:comment", DescriptorViolationType.FIELD_MISMATCH)
+    new FieldCheck("dcterms:isVersionOf", DescriptorViolationType.FIELD_DEFINITION_MISMATCH),
+    new FieldCheck("dcterms:references", DescriptorViolationType.FIELD_DEFINITION_MISMATCH)
+  );
 
   private final ObjectMapper mapper;
   private final Map<DescriptorViolationType, ValidationIssue.Severity> severityOverrides;
@@ -108,7 +129,7 @@ public class DwcDpTableSchemaValidator {
     for (int i = 0; i < resourcesNode.size(); i++) {
       JsonNode resource = resourcesNode.get(i);
       String name = resource.path("name").asText("").trim();
-      String loc = "resources[" + i + "]";
+      String loc = "resources[" + name + "]";
 
       String schemaPath = nameToSchemaPath.get(name);
       if (schemaPath == null) continue;
@@ -177,35 +198,14 @@ public class DwcDpTableSchemaValidator {
   private void crossCheck(JsonNode resource, JsonNode canonicalSchema,
                           String resourceName, String loc, List<ValidationIssue> issues) {
 
-    Map<String, JsonNode> canonicalFields = new HashMap<>();
-    JsonNode canonicalFieldsNode = canonicalSchema.path("fields");
-    if (canonicalFieldsNode.isArray()) {
-      for (JsonNode f : canonicalFieldsNode) {
-        String n = f.path("name").asText("").trim();
-        if (!n.isBlank()) canonicalFields.put(n, f);
-      }
-    }
+    List<ValidationIssue> duplicateFields = checkDuplicateNames(resource.path("schema"), resourceName, loc);
+    issues.addAll(duplicateFields);
 
-    Map<String, JsonNode> userFields = new HashMap<>();
-    JsonNode userFieldsNode = resource.path("schema").path("fields");
-    if (userFieldsNode.isArray()) {
-      for (JsonNode f : userFieldsNode) {
-        String n = f.path("name").asText("").trim();
-        if (!n.isBlank()) userFields.put(n, f);
-      }
-    }
+    Map<String, JsonNode> canonicalFields = getFieldMap(canonicalSchema);
+    Map<String, JsonNode> userFields = getFieldMap(resource.path("schema"));
 
-    for (Map.Entry<String, JsonNode> entry : canonicalFields.entrySet()) {
-      String fieldName = entry.getKey();
-      JsonNode canonical = entry.getValue();
-      boolean required = canonical.path("constraints").path("required").asBoolean(false);
-
-      if (required && !userFields.containsKey(fieldName)) {
-        issues.add(issue(DescriptorViolationType.REQUIRED_FIELD_MISSING,
-                         "Required field '" + fieldName + "' is missing from resource '" + resourceName + "'.",
-                         loc + ".schema.fields"));
-      }
-    }
+    List<ValidationIssue> crossValidationIssues = crossCheckNames(resourceName, loc, canonicalFields, userFields);
+    issues.addAll(crossValidationIssues);
 
     for (Map.Entry<String, JsonNode> entry : userFields.entrySet()) {
       String fieldName = entry.getKey();
@@ -220,18 +220,114 @@ public class DwcDpTableSchemaValidator {
         continue;
       }
 
-      String userType = userField.path("type").asText("string").trim().toLowerCase();
-      String canonicalType = canonical.path("type").asText("string").trim().toLowerCase();
-      if (!userType.equals(canonicalType)) {
-        issues.add(issue(DescriptorViolationType.FIELD_TYPE_MISMATCH,
-                         "Field '" + fieldName + "' in resource '" + resourceName
-                         + "' declares type '" + userType
-                         + "' but canonical schema expects '" + canonicalType + "'.",
-                         loc + ".schema.fields[" + fieldName + "].type"));
+      for (FieldCheck check : REQUIRED_FIELD_CHECKS) {
+        Optional<ValidationIssue> missing = checkPresence(userField, check.name(),
+                                                          name -> createMissingFieldIssue(fieldName, name, resourceName, loc));
+        if (missing.isPresent()) {
+          issues.add(missing.get());
+          continue; // fail early
+        }
+        checkEquality(userField, canonical, check.name(),
+                      (userValue, canonicalValue) -> createFieldIssue(fieldName, check.name(), resourceName, userValue, canonicalValue, loc, check.violationType()))
+          .ifPresent(issues::add);
       }
+
+      for (FieldCheck check : OPTIONAL_FIELD_CHECKS) {
+        checkEquality(userField, canonical, check.name(),
+                      (userValue, canonicalValue) -> createFieldIssue(fieldName, check.name(), resourceName, userValue, canonicalValue, loc, check.violationType()))
+          .ifPresent(issues::add);
+      }
+
+      crossCheckForeignKeys(resource, canonicalSchema, resourceName, loc, issues);
     }
 
     crossCheckForeignKeys(resource, canonicalSchema, resourceName, loc, issues);
+  }
+  private ValidationIssue createFieldIssue(String fieldName, String definition, String resourceName,
+                                           String userValue, String canonicalValue, String loc, DescriptorViolationType violationType) {
+    return issue(violationType,
+                 "Field '" + fieldName + "' in resource '" + resourceName
+                 + "' declares '" + definition + "': '" + userValue
+                 + "' but canonical schema expects '" + canonicalValue + "'.",
+                 loc + ".schema.fields[" + fieldName + "]" + definition);
+  }
+
+  private ValidationIssue createMissingFieldIssue(String fieldName, String definition, String resourceName, String loc) {
+    return issue(DescriptorViolationType.FIELD_DEFINITION_MISSING, // ← swap in your actual enum constant, guessed here
+                 "Field '" + fieldName + "' in resource '" + resourceName
+                 + "' is missing required definition '" + definition + "'.",
+                 loc + ".schema.fields[" + fieldName + "]" + definition);
+  }
+
+  private Optional<ValidationIssue> checkPresence(JsonNode userField, String name, Function<String, ValidationIssue> issueMapper) {
+    JsonNode value = userField.path(name);
+    if (value.isMissingNode() || value.isNull()) {
+      return Optional.of(issueMapper.apply(name));
+    }
+    return Optional.empty();
+  }
+
+  private Optional<ValidationIssue> checkEquality(JsonNode userField, JsonNode canonicalField, String name, BiFunction<String, String, ValidationIssue> issueMapper) {
+    String userValue = userField.path(name).asText("").trim();
+    String canonicalValue = canonicalField.path(name).asText("").trim();
+    if (!userValue.equals(canonicalValue)) {
+      return Optional.of(issueMapper.apply(name, userValue));
+    }
+    return Optional.empty();
+  }
+
+  private List<ValidationIssue> crossCheckNames(
+    String resourceName,
+    String loc,
+    Map<String, JsonNode> canonicalFields,
+    Map<String, JsonNode> userFields
+  ) {
+    List<ValidationIssue> crossValidationIssues = new ArrayList<>();
+    for (Map.Entry<String, JsonNode> entry : canonicalFields.entrySet()) {
+      String fieldName = entry.getKey();
+      JsonNode canonical = entry.getValue();
+      boolean required = canonical.path("constraints").path("required").asBoolean(false);
+
+      if (required && !userFields.containsKey(fieldName)) {
+        crossValidationIssues.add(issue(DescriptorViolationType.REQUIRED_FIELD_MISSING,
+                                        "Required field '" + fieldName + "' is missing from resource '" + resourceName
+                                        + "'.",
+                                        loc + ".schema.fields"));
+      }
+    }
+    return crossValidationIssues;
+  }
+
+  private List<ValidationIssue> checkDuplicateNames(JsonNode schema, String resourceName, String loc) {
+    Set<String> fields = new HashSet<>();
+    Map<String, ValidationIssue> issues = new HashMap<>();
+    JsonNode FieldNodes = schema.path("fields");
+    if (FieldNodes.isArray()) {
+      for (JsonNode f : FieldNodes) {
+        String name = f.path("name").asText("").trim();
+        if (!name.isBlank()) {
+          if (fields.contains(name)) {
+            issues.putIfAbsent(name, (issue(DescriptorViolationType.FIELD_DUPLICATE,
+                             "Field '" + name + "' is duplicated in resource '" + resourceName + "'.",
+                             loc + ".schema.fields[" + name + "]")));
+          }
+          fields.add(name);
+        }
+      }
+    }
+    return List.copyOf(issues.values());
+  }
+
+  private static Map<String, JsonNode> getFieldMap(JsonNode canonicalSchema) {
+    Map<String, JsonNode> fields = new HashMap<>();
+    JsonNode fieldNodes = canonicalSchema.path("fields");
+    if (fieldNodes.isArray()) {
+      for (JsonNode field : fieldNodes) {
+        String name = field.path("name").asText("").trim();
+        if (!name.isBlank()) fields.put(name, field);
+      }
+    }
+    return fields;
   }
 
   private void crossCheckForeignKeys(JsonNode resource, JsonNode canonicalSchema,

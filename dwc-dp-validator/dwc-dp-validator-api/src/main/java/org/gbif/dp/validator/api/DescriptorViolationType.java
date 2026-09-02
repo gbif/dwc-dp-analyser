@@ -72,6 +72,18 @@ public enum DescriptorViolationType {
   FIELD_TYPE_MISMATCH(
     "A field's declared type differs from the canonical DwC-DP table schema type."),
 
+  FIELD_DEFINITION_MISMATCH(
+    "A Field is not matching canonical DwC-DP table schema field by same name"
+  ),
+
+  FIELD_DUPLICATE(
+    "A Field with the same name was used multiple times in the same resource"
+  ),
+
+  FIELD_DEFINITION_MISSING(
+    "Required Field missing"
+  ),
+
   FOREIGN_KEY_MISSING(
     "A foreign key required by the canonical DwC-DP table schema is not declared in the resource."),
 
@@ -80,6 +92,8 @@ public enum DescriptorViolationType {
 
   TABLE_SCHEMA_UNAVAILABLE(
     "The canonical table schema for a DwC-DP resource could not be loaded from the classpath."),
+
+  // ── EML schema validation (Layer 1) ───────────────────────
 
   INVALID_XML(
     "The eml.xml file is not well-formed XML."),

@@ -2,6 +2,15 @@
 
 All notable changes to `dwc-dp-analyser` are documented in this file.
 
+## [0.0.14]
+
+### Fixed
+- Added validation for duplicated fields in a single resource
+- Added checks for field definition mismatch with canonical schema
+
+### Changed
+- Validation issues now use location `resource[occurrence]` etc. as opposed to the list index eg. `resource[1]`
+
 ## [0.0.13]
 
 ### Changed
