@@ -2,6 +2,16 @@
 
 All notable changes to `dwc-dp-analyser` are documented in this file.
 
+## [0.0.15]
+
+###
+- Fixed issue, causing schema reference issues to show up N+1 times
+- Added additional checks for schema reference checks such as:
+  - Does external resource exists
+  - Does external resource have field
+  - Improved issue message
+- Fixed issue with field definition mismatch reporting wrong message
+
 ## [0.0.14]
 
 ### Fixed

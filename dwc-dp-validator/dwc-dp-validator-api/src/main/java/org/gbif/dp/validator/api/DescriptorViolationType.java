@@ -30,7 +30,7 @@ public enum DescriptorViolationType {
     "The datapackage.json file does not exist at the given path."),
 
   INVALID_JSON(
-    "The datapackage.json is not isValid JSON."),
+    "The datapackage.json is not valid JSON."),
 
   MISSING_RESOURCES(
     "The 'resources' array is absent or empty — no data can be analysed."),
@@ -86,6 +86,15 @@ public enum DescriptorViolationType {
 
   FOREIGN_KEY_MISSING(
     "A foreign key required by the canonical DwC-DP table schema is not declared in the resource."),
+
+  FOREIGN_KEY_FIELD_NOT_DECLARED(
+    "A foreign key references a field that is not declared in the resource's own schema."),
+
+  FOREIGN_KEY_TARGET_FIELD_NOT_DECLARED(
+    "A foreign key references a field that is not declared in the target resource's schema."),
+
+  FOREIGN_KEY_NOT_IN_CANONICAL_SCHEMA(
+    "A foreign key declared in a resource does not match any relationship defined in the canonical DwC-DP table schema."),
 
   UNKNOWN_FIELD(
     "A field is declared that does not exist in the canonical DwC-DP table schema."),

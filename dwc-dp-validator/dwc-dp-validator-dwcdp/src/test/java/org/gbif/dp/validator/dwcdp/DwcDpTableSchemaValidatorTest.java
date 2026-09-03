@@ -87,6 +87,37 @@ class DwcDpTableSchemaValidatorTest {
   }
 
   @Test
+  void shouldReportForeignKeyMissingExactlyOnce() {
+    // occurrence's canonical schema declares a required FK on eventID -> event;
+    // this resource omits foreignKeys entirely, so it should be flagged once, not once per field.
+    String json = """
+      {
+        "name": "test",
+        "resources": [{
+          "name": "occurrence",
+          "path": "occurrence.csv",
+          "schema": {
+            "fields": [
+              { "name": "occurrenceID", "type": "string" },
+              { "name": "eventID",      "type": "string" }
+            ]
+          }
+        }]
+      }
+      """;
+
+    List<ValidationIssue> issues = validator.validate(json);
+
+    List<ValidationIssue> fkIssues = issues.stream()
+      .filter(i -> i.violationType() == DescriptorViolationType.FOREIGN_KEY_MISSING)
+      .toList();
+
+    assertEquals(1, fkIssues.size(),
+                 "Expected exactly one FOREIGN_KEY_MISSING issue for eventID, got: " + fkIssues);
+    assertTrue(fkIssues.get(0).message().contains("eventID"));
+  }
+
+  @Test
   void shouldReportDuplicateField() {
     String json = """
       {
@@ -112,6 +143,35 @@ class DwcDpTableSchemaValidatorTest {
         i.violationType() == DescriptorViolationType.FIELD_DUPLICATE
         && i.message().contains("organismQuantity")),
                "Expected FIELD_DUPLICATE for 'organismQuantity', got: " + issues);
+  }
+
+  @Test
+  void shouldMarkIssueWithUserValueAndCanonicalValueOnMismatch() {
+    String json = """
+        {
+          "name": "test",
+          "resources": [{
+            "name": "occurrence",
+            "path": "occurrence.csv",
+            "schema": {
+              "fields": [
+                { "name": "occurrenceID",  "type": "string" },
+                { "name": "eventID",       "type": "string" },
+                { "name": "organismQuantity", "title": "My Own Title", "type": "string" }
+              ]
+            }
+          }]
+        }
+        """;
+
+    List<ValidationIssue> issues = validator.validate(json);
+
+    assertTrue(issues.stream().anyMatch(i ->
+                                          i.violationType() == DescriptorViolationType.FIELD_DEFINITION_MISMATCH
+                                          && i.message().contains("'title': 'My Own Title'")
+                                          && !i.message().contains("expects: 'My Own Title'")
+                                          && i.message().contains("expects 'Organism Quantity'")),
+               "Expected " + DescriptorViolationType.FIELD_DEFINITION_MISMATCH.name() + " for title value mismatch, got: " + issues);
   }
 
   @Test
