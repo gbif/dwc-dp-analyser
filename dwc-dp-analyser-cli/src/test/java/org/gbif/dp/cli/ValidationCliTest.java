@@ -13,9 +13,12 @@
  */
 package org.gbif.dp.cli;
 
+import org.gbif.dp.validator.dwcdp.SchemaFetchPolicy;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -26,6 +29,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import picocli.CommandLine;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -47,6 +52,37 @@ class ValidationCliTest {
   @AfterEach
   void restoreStdout() {
     System.setOut(originalOut);
+  }
+
+  private static SchemaFetchPolicy policyFor(String... args) {
+    Config config = new Config();
+    new CommandLine(config).parseArgs(args);
+    return ValidationCli.schemaFetchPolicy(config);
+  }
+
+  @Test
+  void schemaPolicyDefaultsToBuiltInAllowlist() {
+    SchemaFetchPolicy policy = policyFor("datapackage.json");
+    assertTrue(policy.allows(URI.create("https://rs.tdwg.org/dwc-dp/2.0/dwc-dp-profile.json")));
+    assertFalse(policy.allows(URI.create("https://mirror.example.org/dwc-dp-profile.json")));
+  }
+
+  @Test
+  void schemaHostFlagAddsToDefaults() {
+    SchemaFetchPolicy policy =
+      policyFor("--schema-host", "mirror.example.org", "--schema-host", "a.example,b.example", "datapackage.json");
+    assertTrue(policy.allows(URI.create("https://rs.tdwg.org/dwc-dp/2.0/dwc-dp-profile.json")));
+    assertTrue(policy.allows(URI.create("https://mirror.example.org/dwc-dp-profile.json")));
+    assertTrue(policy.allows(URI.create("https://b.example/dwc-dp-profile.json")));
+    assertFalse(policy.allows(URI.create("http://mirror.example.org/dwc-dp-profile.json")));
+    assertFalse(policy.allows(URI.create("https://other.example/dwc-dp-profile.json")));
+  }
+
+  @Test
+  void offlineSchemasFlagBlocksEverything() {
+    SchemaFetchPolicy policy = policyFor("--offline-schemas", "--schema-host", "mirror.example.org", "datapackage.json");
+    assertFalse(policy.allows(URI.create("https://rs.tdwg.org/dwc-dp/2.0/dwc-dp-profile.json")));
+    assertFalse(policy.allows(URI.create("https://mirror.example.org/dwc-dp-profile.json")));
   }
 
   @Test

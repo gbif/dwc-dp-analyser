@@ -2,6 +2,41 @@
 
 All notable changes to `dwc-dp-analyser` are documented in this file.
 
+## [Unreleased]
+
+### Added
+- Remote fallback for DwC-DP profiles that aren't bundled (DwC-DP 1.0 and later, published at
+  `https://rs.tdwg.org/dwc-dp/<version>/dwc-dp-profile.json`): the profile and its table schemas
+  are fetched over HTTPS when the URL passes a `SchemaFetchPolicy`. The tables are the names in
+  the profile's `$defs.dwc-dp-resource-names`, each read from `table-schemas/<name>.json` next to
+  the profile; `index.json` is only fetched if a profile declares no names
+- `SchemaFetchPolicy` (`defaults()`, `none()`, `allowHosts(...)`, `or`/`and`) — injectable via
+  `new DwcDpDescriptorValidator(severityOverrides, policy)` or `new DwcDpProfileRegistry(policy)`.
+  The default allows `rs.tdwg.org`, `dwc-prerelease.rs.tdwg.org` and `specs.frictionlessdata.io`
+- CLI flags `--schema-host <host>` (added to the defaults) and `--offline-schemas`
+- `DwcDpProfileRegistry.resolveDetailed(...)` returning a `ProfileResolution` with the reason
+  a profile could not be resolved
+- `TableSchemaSource` abstraction (classpath or remote) for `DwcDpTableSchemaValidator`
+
+### Changed
+- **Behaviour change for library users:** the default `DwcDpDescriptorValidator` (and therefore
+  `new DefaultDataPackageAnalysisOrchestrator(dataAnalyser)`) now makes outbound HTTPS requests
+  when a descriptor declares a non-bundled profile on an allowed host. Pass
+  `SchemaFetchPolicy.none()` (CLI: `--offline-schemas`) to keep the previous offline behaviour
+- **The `1.0` profile URIs are no longer aliased to the bundled `1.0_DEV`.** The published 1.0
+  differs from 1.0_DEV (e.g. `eventConductedBy` → `recordedBy`, new tables), so 1.0 descriptors
+  are now validated against the published schemas, fetched remotely. Offline, 1.0 descriptors get
+  `UNRECOGNIZED_PROFILE_VERSION`
+- `http://` profile URIs are fetched over HTTPS when the policy only allows HTTPS (the default)
+- Remote schemas are cached for 24 hours; failed fetches are cached for 60 seconds so an
+  unreachable host doesn't cost a full timeout on every validation
+- Profile URLs with a query string are not fetched
+- `UNRECOGNIZED_PROFILE_VERSION` messages now state why the profile was not used (missing,
+  not a URL, blocked by policy, fetch failed, not a profile, failed to load)
+- `TABLE_SCHEMA_UNAVAILABLE` messages name the actual location (classpath or URL)
+- `DwcDpSchemaVersion` now carries a `TableSchemaSource` and a `bundled` flag;
+  `tableSchemaClasspathBase()` is deprecated
+
 ## [0.0.15]
 
 ###

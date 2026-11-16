@@ -41,3 +41,6 @@ target/
 
 # Ignore generated json schema
 *.schema.json
+
+# Local Maven repository
+/.m2/

@@ -28,6 +28,14 @@
         <groupId>org.gbif</groupId>
         <artifactId>dwc-dp-validator-api</artifactId>
       </dependency>
+      <dependency>
+        <groupId>org.gbif</groupId>
+        <artifactId>dwc-dp-validator-dwcdp</artifactId>
+      </dependency>
+      <dependency>
+        <groupId>org.gbif</groupId>
+        <artifactId>dwc-dp-validator-eml</artifactId>
+      </dependency>
 
       <!-- Third-party dependencies -->
       <dependency>

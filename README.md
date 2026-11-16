@@ -35,8 +35,11 @@ Validates the descriptor against the DwC-DP profile schema matching its declared
 via [networknt json-schema-validator](https://github.com/networknt/json-schema-validator).
 Multiple DwC-DP versions are supported simultaneously — the descriptor's top-level `profile`
 field is resolved to the matching version's schema by `DwcDpProfileRegistry` (currently 0.1
-and 1.0_DEV); an unrecognized or missing `profile` skips Layers 1 and 2 with a single
-diagnostic issue rather than failing outright.
+and 1.0_DEV are bundled from `dwc-dp-schemas`). A `profile` that isn't bundled — including the
+published 1.0 and later — is fetched remotely if the schema fetch policy allows it (see
+[Remote schemas](#remote-schemas)). A
+missing, blocked or unfetchable `profile` skips Layers 1 and 2 with a single
+`UNRECOGNIZED_PROFILE_VERSION` issue that says why, rather than failing outright.
 - Top-level `profile` is present and matches a known DwC-DP version
 - Each DwC-DP named resource declares `profile: tabular-data-resource`
 - Each field declares `dcterms:isVersionOf` as a valid URI
@@ -199,6 +202,44 @@ All flags can also be set via environment variables.
 | `--duckdb-threads`  | `DUCKDB_THREADS`       | `2`            | Thread count         |
 | `--duckdb-temp-dir` | `DUCKDB_TEMP_DIR`      | `./tmp`        | Temp directory       |
 | `--duckdb-max-temp` | `DUCKDB_MAX_TEMP_SIZE` | `20GB`         | Max temp size        |
+
+### Remote schemas
+
+| Flag                       | Default | Description |
+|----------------------------|---------|-------------|
+| `--schema-host <host>`     | —       | Extra host trusted for fetching non-bundled profiles. HTTPS only; repeatable or comma-separated. Added on top of the defaults. |
+| `--offline-schemas`        | false   | Never fetch schemas; only bundled profiles are validated. |
+
+Bundled profiles never touch the network. When a descriptor declares a profile that is not
+bundled, the validator fetches it only if the URL passes the **schema fetch policy**. The
+default policy allows HTTPS on the default port to `rs.tdwg.org`,
+`dwc-prerelease.rs.tdwg.org` and `specs.frictionlessdata.io`.
+
+- DwC-DP 1.0 and later are published at `https://rs.tdwg.org/dwc-dp/<version>/dwc-dp-profile.json`
+  and always resolved this way (only 0.1 and 1.0_DEV are bundled). The tables are the names in
+  the profile's `$defs.dwc-dp-resource-names`, each read from `table-schemas/<name>.json` next to
+  the profile, and only for resources the package actually uses.
+- The policy is checked for the profile, every table schema, every `$ref`, and every redirect hop.
+- Only `http`/`https`, no user-info, normalized paths; 10 s timeout, 5 MB response limit.
+- The fetched document must be a JSON Schema, and its `$id` (if any) must match the requested URL.
+- `http://` profile URIs (e.g. `http://rs.tdwg.org/...`) are fetched over HTTPS when the policy
+  only allows HTTPS. Profile URLs with a query string are not fetched.
+- Remote schemas are cached for 24 hours; failed fetches are retried after 60 seconds.
+- Outbound requests honour the standard JVM proxy settings (`-Dhttps.proxyHost`, `-Dhttps.proxyPort`).
+- The default `DwcDpDescriptorValidator` uses the default policy, so library users get remote
+  fetching too; pass `SchemaFetchPolicy.none()` to stay fully offline.
+
+Library users can inject their own policy:
+
+```java
+SchemaFetchPolicy policy = SchemaFetchPolicy.defaults()
+    .or(SchemaFetchPolicy.allowHosts("schemas.example.org"));
+// or fully custom: uri -> uri.toString().startsWith("https://mirror.example.org/dwc-dp/")
+// or no network at all: SchemaFetchPolicy.none()
+
+DescriptorValidator validator = new DwcDpDescriptorValidator(Map.of(), policy);
+new DefaultDataPackageAnalysisOrchestrator(dataAnalyser, validator, new EmlValidator());
+```
 
 ## Notes for large datasets
 

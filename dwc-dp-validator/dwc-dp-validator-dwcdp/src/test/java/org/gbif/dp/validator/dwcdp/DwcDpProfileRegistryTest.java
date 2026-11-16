@@ -107,19 +107,32 @@ class DwcDpProfileRegistryTest {
   }
 
   @Test
-  void defaultConstructorAliasesProductionOneDotZeroUriToOneDotZeroDev() {
-    // Exercises the real KNOWN_VERSIONS table (default no-arg constructor) rather than a
-    // fake VersionConfig list, to catch drift if the production alias entry is ever edited
-    // or removed from DwcDpProfileRegistry itself.
-    DwcDpProfileRegistry registry = new DwcDpProfileRegistry();
+  void publishedOneDotZeroIsNotAliasedToBundledOneDotZeroDev() {
+    // Exercises the real KNOWN_VERSIONS table. The published 1.0 differs from 1.0_DEV, so it
+    // must not resolve to the bundled schemas; offline, it is simply not available.
+    DwcDpProfileRegistry registry = new DwcDpProfileRegistry(SchemaFetchPolicy.none());
 
     Optional<DwcDpSchemaVersion> devVersion =
       registry.resolve("https://dwc-prerelease.rs.tdwg.org/dwc-dp/1.0_DEV/dwc-dp-profile.json");
-    Optional<DwcDpSchemaVersion> productionAlias =
-      registry.resolve("https://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json");
+    Optional<DwcDpSchemaVersion> devHttpAlias =
+      registry.resolve("http://dwc-prerelease.rs.tdwg.org/dwc-dp/1.0_DEV/dwc-dp-profile.json");
 
     assertTrue(devVersion.isPresent());
-    assertTrue(productionAlias.isPresent());
-    assertSame(devVersion.get(), productionAlias.get());
+    assertSame(devVersion.get(), devHttpAlias.orElseThrow());
+    for (String published : List.of("https://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json",
+                                     "http://rs.tdwg.org/dwc-dp/1.0/dwc-dp-profile.json")) {
+      ProfileResolution r = registry.resolveDetailed(published);
+      assertEquals(ProfileResolution.Reason.REMOTE_DISABLED,
+                   ((ProfileResolution.Unresolved) r).reason(), published);
+    }
+  }
+
+  @Test
+  void declaredResourceNamesComeFromTheProfileEnum() {
+    assertEquals(List.of("event", "occurrence"), DwcDpProfileRegistry.declaredResourceNames("""
+        {"$defs": {"dwc-dp-resource-names": {"enum": ["event", "occurrence", "../evil", 7]}}}
+        """));
+    assertEquals(List.of(), DwcDpProfileRegistry.declaredResourceNames("{\"$schema\": \"x\"}"));
+    assertEquals(List.of(), DwcDpProfileRegistry.declaredResourceNames("not json"));
   }
 }

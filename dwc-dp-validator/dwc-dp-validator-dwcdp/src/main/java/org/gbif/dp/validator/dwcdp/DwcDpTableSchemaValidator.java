@@ -17,7 +17,6 @@ import org.gbif.dp.validator.api.DescriptorViolationType;
 import org.gbif.dp.validator.api.ValidationIssue;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -41,8 +40,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * <p>The FK/required-field cross-check logic itself does not vary by version — it reads
  * {@code constraints.required} generically off whichever canonical schema is loaded, and
  * silently no-ops on {@code weakForeignKeys}/{@code weakPrimaryKey} for versions that don't
- * declare them. Only {@code classpathBase} (where {@code index.json} and
- * {@code table-schemas/} live) is version-specific, hence the constructor parameter.
+ * declare them. Only the {@link TableSchemaSource} (where {@code index.json} and
+ * {@code table-schemas/} live — bundled classpath, or a remote URL gated by a
+ * {@link SchemaFetchPolicy}) is version-specific, hence the constructor parameter.
  *
  * <p>Still operates on the raw {@link JsonNode} tree, not the {@code org.gbif.dp.descriptor}
  * model — migrating this onto {@code ResourceDescriptor}/{@code FieldDescriptor.constraints()}
@@ -74,8 +74,7 @@ public class DwcDpTableSchemaValidator {
 
   private final ObjectMapper mapper;
   private final Map<DescriptorViolationType, ValidationIssue.Severity> severityOverrides;
-  private final String indexClasspath;
-  private final String schemaBase;
+  private final TableSchemaSource source;
   private final ForeignKeyCrossChecker foreignKeyCrossChecker;
 
   /** Defaults to the 0.1 table schemas — legacy single-version behavior. */
@@ -104,10 +103,26 @@ public class DwcDpTableSchemaValidator {
     String classpathBase,
     ForeignKeyCrossChecker foreignKeyCrossChecker
   ) {
+    this(mapper, severityOverrides, TableSchemaSource.classpath(classpathBase), foreignKeyCrossChecker);
+  }
+
+  /** Reads {@code index.json} and table schemas from {@code source} (bundled or remote). */
+  public DwcDpTableSchemaValidator(
+    ObjectMapper mapper,
+    Map<DescriptorViolationType, ValidationIssue.Severity> severityOverrides,
+    TableSchemaSource source) {
+    this(mapper, severityOverrides, source, new ForeignKeyCrossChecker(severityOverrides));
+  }
+
+  public DwcDpTableSchemaValidator(
+    ObjectMapper mapper,
+    Map<DescriptorViolationType, ValidationIssue.Severity> severityOverrides,
+    TableSchemaSource source,
+    ForeignKeyCrossChecker foreignKeyCrossChecker
+  ) {
     this.mapper = mapper;
     this.severityOverrides = severityOverrides;
-    this.indexClasspath = classpathBase + "/index.json";
-    this.schemaBase = classpathBase + "/table-schemas/";
+    this.source = source;
     this.foreignKeyCrossChecker = foreignKeyCrossChecker;
   }
 
@@ -162,17 +177,22 @@ public class DwcDpTableSchemaValidator {
     return issues;
   }
 
+  private static final String INDEX_PATH = "index.json";
+  private static final String TABLE_SCHEMAS_DIR = "table-schemas/";
+
   private Map<String, String> loadIndex(List<ValidationIssue> issues) {
-    try (InputStream is = getClass().getResourceAsStream(indexClasspath)) {
-      if (is == null) {
-        log.warn("DwC-DP index not found at classpath:{}", indexClasspath);
+    try {
+      Optional<String> content = source.read(INDEX_PATH);
+      if (content.isEmpty()) {
+        log.warn("DwC-DP index not found at {}", source.describe(INDEX_PATH));
         issues.add(issue(DescriptorViolationType.TABLE_SCHEMA_UNAVAILABLE,
-                         "DwC-DP index.json not found on classpath — table schema cross-validation skipped.",
+                         "DwC-DP index.json not found at " + source.describe(INDEX_PATH)
+                         + " — table schema cross-validation skipped.",
                          null));
         return null;
       }
 
-      JsonNode index = mapper.readTree(is);
+      JsonNode index = mapper.readTree(content.get());
       Map<String, String> result = new HashMap<>();
 
       JsonNode tableSchemas = index.path("tableSchemas");
@@ -181,8 +201,7 @@ public class DwcDpTableSchemaValidator {
           String name = entry.path("name").asText("").trim();
           String url = entry.path("url").asText("").trim();
           if (!name.isBlank() && !url.isBlank()) {
-            String classpathEntry = schemaBase + url.replaceFirst("^table-schemas/", "");
-            result.put(name, classpathEntry);
+            result.put(name, toRelativeSchemaPath(url));
           }
         }
       }
@@ -197,16 +216,29 @@ public class DwcDpTableSchemaValidator {
     }
   }
 
-  private JsonNode loadTableSchema(String classpathEntry, String name, String loc,
+  /**
+   * Index entries are usually {@code table-schemas/<name>.json}, relative to the index. Bare
+   * file names are treated as living under {@code table-schemas/} (historic behaviour);
+   * absolute URLs are passed through, where a remote source still applies the fetch policy.
+   */
+  private static String toRelativeSchemaPath(String url) {
+    if (url.startsWith(TABLE_SCHEMAS_DIR) || url.contains("://")) {
+      return url;
+    }
+    return TABLE_SCHEMAS_DIR + url;
+  }
+
+  private JsonNode loadTableSchema(String schemaPath, String name, String loc,
                                    List<ValidationIssue> issues) {
-    try (InputStream is = getClass().getResourceAsStream(classpathEntry)) {
-      if (is == null) {
+    try {
+      Optional<String> content = source.read(schemaPath);
+      if (content.isEmpty()) {
         issues.add(issue(DescriptorViolationType.TABLE_SCHEMA_UNAVAILABLE,
-                         "Canonical table schema not found for '" + name + "' at classpath:" + classpathEntry,
+                         "Canonical table schema not found for '" + name + "' at " + source.describe(schemaPath),
                          loc));
         return null;
       }
-      return mapper.readTree(is);
+      return mapper.readTree(content.get());
     } catch (IOException e) {
       issues.add(issue(DescriptorViolationType.TABLE_SCHEMA_UNAVAILABLE,
                        "Failed to read canonical table schema for '" + name + "': " + e.getMessage(), loc));

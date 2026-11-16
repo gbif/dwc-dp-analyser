@@ -13,6 +13,9 @@
  */
 package org.gbif.dp.cli;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,6 +73,16 @@ public class Config implements Runnable {
 
   public enum OutputFormat { TEXT, JSON }
 
+  @Option(names = "--schema-host", paramLabel = "<host>", split = ",",
+    description = "Extra host trusted for fetching DwC-DP profiles that aren't bundled "
+                  + "(HTTPS only, repeatable or comma-separated). Added on top of the defaults: "
+                  + "rs.tdwg.org, dwc-prerelease.rs.tdwg.org, specs.frictionlessdata.io.")
+  public List<String> schemaHosts = new ArrayList<>();
+
+  @Option(names = "--offline-schemas",
+    description = "Never fetch schemas over the network; only bundled DwC-DP profiles are validated.")
+  public boolean offlineSchemas;
+
   @Override
   public void run() {
     if (verbose) {
@@ -80,6 +93,8 @@ public class Config implements Runnable {
       log.info("duckdbTempDir  = {}", duckdbTempDir);
       log.info("duckdbMaxTemp  = {}", duckdbMaxTemp);
       log.info("outputFormat   = {}", outputFormat);
+      log.info("schemaHosts    = {}", schemaHosts);
+      log.info("offlineSchemas = {}", offlineSchemas);
     }
   }
 }

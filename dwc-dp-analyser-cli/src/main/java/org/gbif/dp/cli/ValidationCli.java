@@ -31,6 +31,9 @@ import org.gbif.dp.duckdb.CustomDuckDbConfig;
 import org.gbif.dp.validator.api.DescriptorValidationResult;
 import org.gbif.dp.validator.api.EmlValidationResult;
 import org.gbif.dp.validator.api.ValidationIssue;
+import org.gbif.dp.validator.dwcdp.DwcDpDescriptorValidator;
+import org.gbif.dp.validator.dwcdp.SchemaFetchPolicy;
+import org.gbif.dp.validator.eml.EmlValidator;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -61,6 +64,17 @@ public class ValidationCli {
 
   public static void main(String[] args) throws Exception {
     System.exit(run(args));
+  }
+
+  /** Defaults + user-supplied hosts, or nothing at all with {@code --offline-schemas}. */
+  static SchemaFetchPolicy schemaFetchPolicy(Config config) {
+    if (config.offlineSchemas) {
+      return SchemaFetchPolicy.none();
+    }
+    if (config.schemaHosts == null || config.schemaHosts.isEmpty()) {
+      return SchemaFetchPolicy.defaults();
+    }
+    return SchemaFetchPolicy.defaults().or(SchemaFetchPolicy.allowHosts(config.schemaHosts));
   }
 
   public static int run(String[] args) throws Exception {
@@ -104,7 +118,9 @@ public class ValidationCli {
       new DuckDbDataPackageAnalyser(
         new JacksonDataPackageParser(),
         new DuckDbResourceLoader(new DuckDbDialectRenderer()),
-        duckDbConfig));
+        duckDbConfig),
+      new DwcDpDescriptorValidator(Map.of(), schemaFetchPolicy(config)),
+      new EmlValidator());
 
     DatapackageAnalysisResult result;
     try {

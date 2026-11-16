@@ -13,11 +13,16 @@
  */
 package org.gbif.dp.validator.dwcdp;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.networknt.schema.AbsoluteIri;
 import com.networknt.schema.Schema;
 import com.networknt.schema.SchemaLocation;
 import com.networknt.schema.SchemaRegistry;
@@ -26,11 +31,13 @@ import com.networknt.schema.dialect.Dialect;
 import com.networknt.schema.dialect.DialectRegistry;
 import com.networknt.schema.dialect.Dialects;
 import com.networknt.schema.keyword.NonValidationKeyword;
+import com.networknt.schema.resource.InputStreamSource;
+import com.networknt.schema.resource.ResourceLoader;
 
 /**
- * Shared networknt {@link Schema} loading logic — builds a {@link SchemaRegistry} that
- * resolves the Frictionless base schema and one TDWG profile schema from the classpath,
- * with no network access.
+ * Shared networknt {@link Schema} loading logic. {@link #load} resolves the Frictionless base
+ * schema and one bundled TDWG profile schema from the classpath, with no network access.
+ * {@link #loadRemote} loads a non-bundled profile through a policy-gated fetcher.
  */
 final class DwcDpProfileSchemaLoader {
 
@@ -100,6 +107,60 @@ final class DwcDpProfileSchemaLoader {
     } catch (Exception e) {
       log.error("Failed to load DwC-DP profile schema {}: {}", profileUri, e.getMessage(), e);
       return null;
+    }
+  }
+
+  /**
+   * Loads a profile that is not bundled. The Frictionless base schema is still served from
+   * the classpath; every other resource — the profile itself and any transitive {@code $ref}
+   * — is fetched through {@code fetcher}, i.e. subject to its {@link SchemaFetchPolicy}.
+   * networknt's own URL loader is never registered, so nothing bypasses the policy.
+   *
+   * @throws Exception if the schema (or one of its references) cannot be loaded
+   */
+  static Schema loadRemote(URI profileUri, RemoteSchemaFetcher fetcher) throws Exception {
+    SchemaRegistry registry = SchemaRegistry.builder()
+      .dialectRegistry(DIALECT_REGISTRY)
+      .schemaLoader(loader -> loader
+        .fetchRemoteResources(false)
+        .schemaIdResolvers(resolvers -> resolvers
+          .mapPrefix(FRICTIONLESS_SCHEMA_BASE_URL, FRICTIONLESS_SCHEMA_BASE_REF))
+        .resourceLoaders(loaders -> loaders.add(new PolicyResourceLoader(fetcher))))
+      .build();
+    Schema schema = registry.getSchema(SchemaLocation.of(profileUri.toString()));
+    // networknt resolves $refs lazily; force it now so a disallowed or broken reference
+    // surfaces here as a load failure instead of mid-validation.
+    schema.initializeValidators();
+    return schema;
+  }
+
+  /** Adapts {@link RemoteSchemaFetcher} to networknt's {@link ResourceLoader} SPI. */
+  private record PolicyResourceLoader(RemoteSchemaFetcher fetcher) implements ResourceLoader {
+
+    @Override
+    public InputStreamSource getResource(AbsoluteIri iri) {
+      String scheme = iri.getScheme();
+      if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+        return null;
+      }
+      URI uri;
+      try {
+        uri = URI.create(iri.toString());
+      } catch (IllegalArgumentException e) {
+        return () -> {
+          throw new IOException("Invalid schema URL '" + iri + "'");
+        };
+      }
+      RemoteSchemaFetcher.Result result = fetcher.fetch(uri);
+      if (result instanceof RemoteSchemaFetcher.Ok ok) {
+        byte[] bytes = ok.content().getBytes(StandardCharsets.UTF_8);
+        return () -> new ByteArrayInputStream(bytes);
+      }
+      String reason = result instanceof RemoteSchemaFetcher.Denied d ? d.reason()
+                      : ((RemoteSchemaFetcher.Failed) result).reason();
+      return () -> {
+        throw new IOException("Cannot load schema " + result.uri() + ": " + reason);
+      };
     }
   }
 }

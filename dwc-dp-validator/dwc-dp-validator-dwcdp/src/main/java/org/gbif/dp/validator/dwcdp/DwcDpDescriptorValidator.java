@@ -21,10 +21,10 @@ import org.gbif.dp.validator.frictionless.DescriptorValidator;
 import org.gbif.dp.validator.frictionless.FrictionlessDescriptorValidator;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,8 +44,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *       version-specific, same resolution.</li>
  * </ol>
  *
- * <p>Layers 1 and 2 are skipped, with a single {@code UNRECOGNIZED_PROFILE_VERSION} issue,
- * if the descriptor's {@code profile} is missing or doesn't match a known version.
+ * <p>A {@code profile} that is not bundled is fetched remotely if the {@link SchemaFetchPolicy}
+ * allows it (default: {@link SchemaFetchPolicy#defaults()}). Layers 1 and 2 are skipped, with a
+ * single {@code UNRECOGNIZED_PROFILE_VERSION} issue explaining why, if the {@code profile} is
+ * missing, not bundled and not fetchable (blocked by policy, fetch failed, or not a profile).
  */
 public class DwcDpDescriptorValidator implements DescriptorValidator {
 
@@ -63,8 +65,19 @@ public class DwcDpDescriptorValidator implements DescriptorValidator {
   }
 
   public DwcDpDescriptorValidator(Map<DescriptorViolationType, ValidationIssue.Severity> severityOverrides) {
+    this(severityOverrides, SchemaFetchPolicy.defaults());
+  }
+
+  /**
+   * @param schemaFetchPolicy decides which URLs may be fetched when a descriptor declares a
+   *                          profile that is not bundled; {@link SchemaFetchPolicy#none()}
+   *                          disables remote fetching entirely
+   */
+  public DwcDpDescriptorValidator(
+    Map<DescriptorViolationType, ValidationIssue.Severity> severityOverrides,
+    SchemaFetchPolicy schemaFetchPolicy) {
     this(new FrictionlessDescriptorValidator(new ObjectMapper(), severityOverrides),
-         new DwcDpProfileRegistry(), new ObjectMapper(), severityOverrides);
+         new DwcDpProfileRegistry(schemaFetchPolicy), new ObjectMapper(), severityOverrides);
   }
 
   /** Full constructor for testing or custom component injection. */
@@ -105,29 +118,65 @@ public class DwcDpDescriptorValidator implements DescriptorValidator {
     }
 
     String profileUri = extractProfileUri(content);
-    Optional<DwcDpSchemaVersion> version = profileUri == null
-      ? Optional.empty()
-      : profileRegistry.resolve(profileUri);
+    ProfileResolution resolution = profileRegistry.resolveDetailed(profileUri);
 
-    if (version.isEmpty()) {
+    if (resolution instanceof ProfileResolution.Unresolved unresolved) {
       allIssues.add(issue(DescriptorViolationType.UNRECOGNIZED_PROFILE_VERSION,
-                          profileUri == null
-                            ? "No 'profile' declared — cannot determine DwC-DP version; "
-                              + "JSON Schema and table schema validation skipped."
-                            : "Unrecognized DwC-DP profile version '" + profileUri + "' — "
-                              + "JSON Schema and table schema validation skipped.",
+                          unresolvedMessage(profileUri, unresolved),
                           "/profile"));
     } else {
-      DwcDpSchemaVersion v = version.get();
+      DwcDpSchemaVersion v = ((ProfileResolution.Resolved) resolution).version();
       DwcDpProfileValidator profileValidator = new DwcDpProfileValidator(v.profileSchema(), severityOverrides);
       DwcDpTableSchemaValidator tableSchemaValidator =
-        new DwcDpTableSchemaValidator(mapper, severityOverrides, v.tableSchemaClasspathBase());
+        new DwcDpTableSchemaValidator(mapper, severityOverrides, v.tableSchemaSource());
 
       allIssues.addAll(profileValidator.validate(content));
       allIssues.addAll(tableSchemaValidator.validate(content));
     }
 
     return DescriptorValidationResult.of(allIssues);
+  }
+
+  private static final String SKIPPED = " — JSON Schema and table schema validation skipped.";
+
+  /** One message per failure reason, so users can tell "unknown" from "blocked" from "offline". */
+  private static String unresolvedMessage(String profileUri, ProfileResolution.Unresolved unresolved) {
+    return switch (unresolved.reason()) {
+      case MISSING -> "No 'profile' declared — cannot determine DwC-DP version" + SKIPPED;
+      case NOT_A_URL -> "Unrecognized DwC-DP profile '" + profileUri + "': not a bundled version and "
+                        + unresolved.detail() + SKIPPED;
+      case REMOTE_DISABLED -> "DwC-DP profile '" + profileUri + "' is not a bundled version and "
+                              + unresolved.detail() + SKIPPED;
+      case NOT_ALLOWED -> "DwC-DP profile '" + profileUri + "' is not a bundled version and "
+                          + unresolved.detail()
+                          + (hostHintApplies(profileUri, unresolved)
+                             ? ". Allow its host in the schema fetch policy (CLI: --schema-host <host>)"
+                               + " to validate against it"
+                             : "")
+                          + SKIPPED;
+      case FETCH_FAILED -> "DwC-DP profile '" + profileUri + "' is not a bundled version and "
+                           + unresolved.detail() + SKIPPED;
+      case NOT_A_PROFILE -> "DwC-DP profile '" + profileUri + "' is not a bundled version, and "
+                            + unresolved.detail() + SKIPPED;
+      case LOAD_FAILED -> "DwC-DP profile '" + profileUri + "' was fetched but "
+                          + unresolved.detail() + SKIPPED;
+    };
+  }
+
+  /**
+   * Trusting another host only helps if the policy (not a hard rule such as user-info) refused
+   * the URL, and the URL is on a default port — host allowlists never admit other ports.
+   */
+  private static boolean hostHintApplies(String profileUri, ProfileResolution.Unresolved unresolved) {
+    if (!unresolved.detail().endsWith(RemoteSchemaFetcher.POLICY_DENIED)) {
+      return false;
+    }
+    try {
+      int port = URI.create(profileUri.trim()).getPort();
+      return port == -1 || port == 80 || port == 443;
+    } catch (IllegalArgumentException e) {
+      return false;
+    }
   }
 
   private static String extractProfileUri(String descriptorContent) {
