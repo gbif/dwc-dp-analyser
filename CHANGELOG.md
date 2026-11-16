@@ -2,7 +2,7 @@
 
 All notable changes to `dwc-dp-analyser` are documented in this file.
 
-## [Unreleased]
+## [0.0.16]
 
 ### Added
 - Remote fallback for DwC-DP profiles that aren't bundled (DwC-DP 1.0 and later, published at
