@@ -33,7 +33,11 @@ gh release create 'dwc-dp-analyser-<version>' dist/* \
 
 The script generates `Formula/dwc-dp-analyser.rb` in your original checkout using the expected public JAR URL and its SHA-256 checksum. It derives the repository from `origin`. Set `GITHUB_REPO=gbif/dwc-dp-analyser` if packaging from a fork for the GBIF release, or use `SKIP_FORMULA=1` to skip formula generation.
 
-Once the GitHub release and JAR are public, copy the formula into `Formula/` in the Homebrew tap, then commit and push it there. The script defaults to the `wisienkas/dwc-dp-analyser` tap. The automatic release task skips the interactive tap update.
+Once the GitHub release and JAR are public, copy the formula into `Formula/` in your workspace checkout of `Wisienkas/homebrew-dwc-dp-analyser`. Commit and push the formula from that checkout. Then update Homebrew’s installed tap and upgrade the analyser.
+
+```bash
+brew update && brew upgrade wisienkas/dwc-dp-analyser/dwc-dp-analyser
+```
 
 ## Deploy the Maven modules when needed
 
