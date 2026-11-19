@@ -1,0 +1,7 @@
+version: '3'
+
+tasks:
+  release:
+    desc: Build and verify CLI packages for the latest stable tag reachable from dev
+    cmds:
+      - ./release.sh

@@ -172,6 +172,10 @@ The CLI exits with:
 | `1`  | Program error (bad arguments etc.) |
 | `2`  | Validation or data violations found|
 
+## Releases
+
+See the [release guide](RELEASING.md) to build CLI packages with `task release` and publish them on GitHub.
+
 ## Configuration
 
 All flags can also be set via environment variables.

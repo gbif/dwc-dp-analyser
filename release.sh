@@ -2,18 +2,18 @@
 #
 # release.sh — manual release helper for dwc-dp-analyser.
 #
-#   ./release.sh 1.0.0
+#   ./release.sh          # build and package the latest stable tag from dev
+#   ./release.sh 1.0.0    # package an already-built runner jar
 #
 # What it does:
 #   1. Finds the versioned CLI runner jar under dwc-dp-analyser-cli/target/
-#      (Maven/Quarkus bakes the pom version into the filename, so this is
-#      a glob match, not a fixed path).
+#      for the selected version.
 #   2. Copies it to a staging dir under a fixed, version-agnostic name —
 #      this fixed name is what nfpm.yaml actually packages, so nfpm never
 #      has to know or care about the Maven version in the filename.
 #   3. Runs nfpm three times (deb, rpm, archlinux/pacman) and assembles a
 #      Windows portable zip (bin/ + lib/, matching what the .bat wrapper
-#      expects) — four artifacts land in dist/.
+#      expects). The standalone JAR also lands in dist/.
 #   4. Generates a checksums.txt (SHA256) covering every artifact in
 #      dist/, then GPG-signs checksums.txt with a detached armored
 #      signature so downloaders can verify both integrity and origin.
@@ -25,9 +25,8 @@
 
 set -euo pipefail
 
-if [ $# -ne 1 ]; then
-  echo "usage: $0 <version>" >&2
-  echo "  e.g.: $0 1.0.0" >&2
+if [ $# -gt 1 ]; then
+  echo "usage: $0 [version]" >&2
   exit 1
 fi
 
@@ -52,6 +51,11 @@ check_dependencies() {
     missing=1
   fi
 
+  if ! command -v java >/dev/null 2>&1; then
+    echo "error: java not found on PATH" >&2
+    missing=1
+  fi
+
   if [ "${SKIP_SIGN:-0}" != "1" ] && ! command -v gpg >/dev/null 2>&1; then
     echo "error: gpg not found on PATH (set SKIP_SIGN=1 to release without signing)" >&2
     missing=1
@@ -64,35 +68,57 @@ check_dependencies() {
 
 check_dependencies
 
-VERSION="$1"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLI_TARGET_DIR="${ROOT_DIR}/dwc-dp-analyser-cli/target"
-STAGING_DIR="${ROOT_DIR}/packaging/staging"
 DIST_DIR="${ROOT_DIR}/dist"
+SOURCE_DIR="${ROOT_DIR}"
+VERSION="${1:-}"
 
-echo "==> looking for the runner jar in ${CLI_TARGET_DIR}"
+if [ $# -eq 0 ]; then
+  if [ "$(git -C "${ROOT_DIR}" branch --show-current)" != dev ]; then
+    echo "error: run the automatic release from the dev branch" >&2
+    exit 1
+  fi
+  if ! command -v mvn >/dev/null 2>&1; then
+    echo "error: mvn not found on PATH" >&2
+    exit 1
+  fi
 
-# The Maven/Quarkus build embeds the pom version in the filename
-# (dwc-dp-analyser-cli-${VERSION}-runner.jar), so glob rather than assume
-# a fixed name. If more than one match turns up (stale jar from a previous
-# build left behind), fail loudly instead of silently picking one.
-shopt -s nullglob
-matches=("${CLI_TARGET_DIR}"/dwc-dp-analyser-cli-*-runner.jar)
-shopt -u nullglob
-
-if [ ${#matches[@]} -eq 0 ]; then
-  echo "error: no runner jar found matching dwc-dp-analyser-cli-*-runner.jar" >&2
-  echo "  did you run 'mvn package' in dwc-dp-analyser-cli first?" >&2
-  exit 1
-elif [ ${#matches[@]} -gt 1 ]; then
-  echo "error: found more than one candidate runner jar, refusing to guess:" >&2
-  printf '  %s\n' "${matches[@]}" >&2
-  echo "  run 'mvn clean package' to remove stale build output, then retry" >&2
+  git -C "${ROOT_DIR}" fetch --tags origin
+  tags="$(git -C "${ROOT_DIR}" tag --merged HEAD --sort=-version:refname --list 'dwc-dp-analyser-*')"
+  TAG="$(awk '/^dwc-dp-analyser-[0-9]+\.[0-9]+\.[0-9]+$/ && !found { print; found = 1 }' <<< "${tags}")"
+  if [ -z "${TAG}" ]; then
+    echo "error: no stable dwc-dp-analyser-<version> tag is reachable from dev" >&2
+    exit 1
+  fi
+  VERSION="${TAG#dwc-dp-analyser-}"
+  echo "==> building ${TAG}"
+  WORK_DIR="$(mktemp -d)"
+  SOURCE_DIR="${WORK_DIR}/checkout"
+  cleanup() {
+    git -C "${ROOT_DIR}" worktree remove --force "${SOURCE_DIR}" 2>/dev/null || true
+    rmdir "${WORK_DIR}"
+  }
+  trap cleanup EXIT
+  git -C "${ROOT_DIR}" worktree add --detach "${SOURCE_DIR}" "refs/tags/${TAG}"
+  (cd "${SOURCE_DIR}" && mvn clean package)
+  # The caller publishes the release before updating the tap.
+  SKIP_TAP_UPDATE=1
+elif [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "error: expected a stable version such as 1.0.0" >&2
   exit 1
 fi
 
-SOURCE_JAR="${matches[0]}"
-echo "==> found: ${SOURCE_JAR}"
+STAGING_DIR="${SOURCE_DIR}/packaging/staging"
+SOURCE_JAR="${SOURCE_DIR}/dwc-dp-analyser-cli/target/dwc-dp-analyser-cli-${VERSION}-runner.jar"
+if [ ! -f "${SOURCE_JAR}" ]; then
+  echo "error: runner jar missing for ${VERSION}: ${SOURCE_JAR}" >&2
+  echo "  run 'mvn clean package' from a checkout at the matching project version" >&2
+  exit 1
+fi
+java -jar "${SOURCE_JAR}" --help
+
+# nFPM resolves the file paths in its config relative to the working directory.
+cd "${SOURCE_DIR}"
 
 echo "==> cleaning ${DIST_DIR}"
 # dist/ is release output only — wipe it at the start of every run so it
@@ -113,19 +139,19 @@ echo "==> copied jar to ${DIST_DIR}/dwc-dp-analyser-${VERSION}.jar (Homebrew rel
 
 echo "==> building .deb"
 VERSION="${VERSION}" nfpm package \
-  --config "${ROOT_DIR}/packaging/nfpm.yaml" \
+  --config "${SOURCE_DIR}/packaging/nfpm.yaml" \
   --target "${DIST_DIR}/" \
   --packager deb
 
 echo "==> building .rpm"
 VERSION="${VERSION}" nfpm package \
-  --config "${ROOT_DIR}/packaging/nfpm.yaml" \
+  --config "${SOURCE_DIR}/packaging/nfpm.yaml" \
   --target "${DIST_DIR}/" \
   --packager rpm
 
 echo "==> building pacman package"
 VERSION="${VERSION}" nfpm package \
-  --config "${ROOT_DIR}/packaging/nfpm.yaml" \
+  --config "${SOURCE_DIR}/packaging/nfpm.yaml" \
   --target "${DIST_DIR}/" \
   --packager archlinux
 
@@ -136,7 +162,7 @@ echo "==> building windows portable zip"
 WIN_STAGE_DIR="${STAGING_DIR}/windows/dwc-dp-analyser-${VERSION}"
 rm -rf "${WIN_STAGE_DIR}"
 mkdir -p "${WIN_STAGE_DIR}/bin" "${WIN_STAGE_DIR}/lib"
-cp "${ROOT_DIR}/packaging/dwc-dp-analyser.bat" "${WIN_STAGE_DIR}/bin/"
+cp "${SOURCE_DIR}/packaging/dwc-dp-analyser.bat" "${WIN_STAGE_DIR}/bin/"
 cp "${STAGING_DIR}/dwc-dp-analyser-cli-runner.jar" "${WIN_STAGE_DIR}/lib/dwc-dp-analyser-cli.jar"
 
 (
@@ -164,10 +190,19 @@ else
   echo "    verify with: gpg --verify checksums.txt.asc checksums.txt"
 fi
 
+echo "==> verifying release artifacts"
+(
+  cd "${DIST_DIR}"
+  sha256sum -c checksums.txt
+  if [ "${SKIP_SIGN:-0}" != "1" ]; then
+    gpg --verify checksums.txt.asc checksums.txt
+  fi
+)
+
 echo "==> generating Homebrew formula"
 # The formula just needs a download URL + sha256 for the jar we already
 # copied into dist/ above. We assume it'll be uploaded as a GitHub Release
-# asset on this same repo (e.g. via `gh release create v${VERSION} dist/*`)
+# asset on this same repo under the dwc-dp-analyser-${VERSION} tag
 # — override GITHUB_REPO if that's ever not the case, or set
 # SKIP_FORMULA=1 to opt out of generating it for a given run.
 if [ "${SKIP_FORMULA:-0}" = "1" ]; then
@@ -253,6 +288,7 @@ fi
 
 echo "==> done. artifacts in ${DIST_DIR}/:"
 ls -1 "${DIST_DIR}"
+echo "==> GitHub release tag: dwc-dp-analyser-${VERSION}"
 
 # --- optionally push the formula straight to the local Homebrew tap -------
 # Skipped automatically when: not interactive (CI), brew isn't installed,
