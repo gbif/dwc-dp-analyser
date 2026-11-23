@@ -5,7 +5,7 @@
   <parent>
     <groupId>org.gbif</groupId>
     <artifactId>dwc-dp-validator</artifactId>
-    <version>0.0.17-SNAPSHOT</version>
+    <version>0.0.17</version>
   </parent>
 
   <artifactId>dwc-dp-validator-eml</artifactId>
@@ -47,7 +47,7 @@
     <dependency>
       <groupId>org.gbif</groupId>
       <artifactId>dwc-dp-common</artifactId>
-      <version>0.0.17-SNAPSHOT</version>
+      <version>0.0.17</version>
       <scope>compile</scope>
     </dependency>
   </dependencies>
