@@ -16,6 +16,13 @@
       <artifactId>dwc-dp-validator-api</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!-- Well-formedness and schema validation with bundled schemas (shared with registry and
+         the pipelines archive check) -->
+    <dependency>
+      <groupId>org.gbif</groupId>
+      <artifactId>gbif-eml-validation</artifactId>
+      <version>${gbif-eml-validation.version}</version>
+    </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>

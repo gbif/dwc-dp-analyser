@@ -159,4 +159,22 @@ class EmlValidatorTest {
         });
     }
   }
+
+  @Test
+  void shouldRefuseADoctypeInsteadOfResolvingIt() throws Exception {
+    Files.writeString(tempDir.resolve("eml.xml"), """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE eml [<!ENTITY secret SYSTEM "file:///etc/passwd">]>
+      <eml:eml xmlns:eml="https://eml.ecoinformatics.org/eml-2.2.0">
+        <dataset><title>&secret;</title></dataset>
+      </eml:eml>
+      """);
+    try (var src = source()) {
+      EmlValidationResult result = validator.validate(src);
+      assertFalse(result.isValid());
+      assertTrue(result.issues().stream().anyMatch(i ->
+                                                     i.violationType() == DescriptorViolationType.INVALID_XML),
+                 "Expected INVALID_XML for a DOCTYPE, got: " + result.issues());
+    }
+  }
 }
