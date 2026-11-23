@@ -4,7 +4,7 @@
   <parent>
     <groupId>org.gbif</groupId>
     <artifactId>dwc-dp-analyser</artifactId>
-    <version>0.0.17</version>
+    <version>0.0.18-SNAPSHOT</version>
   </parent>
 
   <artifactId>dwc-dp-validator</artifactId>
