@@ -2,6 +2,11 @@
 
 All notable changes to `dwc-dp-analyser` are documented in this file.
 
+## [0.0.17]
+
+### Changed
+- Removed internal EML validator, to instead use the common EML validator at `gbif-eml-validation`
+
 ## [0.0.16]
 
 ### Added
